@@ -3,13 +3,14 @@
 // two main() functions will fail to link ("duplicate main").
 
 #include <QApplication>
-#include <QLabel>
+
+#include "mainpage.h"
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
-    QLabel label("Hello, Qt!");
-    label.show();
+    MainPage page;
+    page.show();
 
     return app.exec();
 }
