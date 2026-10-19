@@ -1,5 +1,5 @@
 # PerplexPing
-
+## User Requirements:
 Mid Lecture Session
    
       The user can start a lecture session
@@ -10,7 +10,7 @@ After Lecture Session
       The user can see when the button was pressed throughout the lecture
       This uses real time timestamps for each button press
 
-Classes
+##Classes
 -User.h
   
    createSession()
