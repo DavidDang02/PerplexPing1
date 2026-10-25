@@ -1,13 +1,13 @@
 # PerplexPing
-An app that lets an educator to start sessions for their lectures, and students join those sessions. \ 
-Students can press a button when they are confused by the lecture, or submit questions. \
-Both students and educators can see a timeline of the recorded session afterwards, seeing where students were confused, and answer questions that they might have had. \
+An app that lets an educator to start sessions for their lectures, and students join those sessions.  
+Students can press a button when they are confused by the lecture, or submit questions.  
+Both students and educators can see a timeline of the recorded session afterwards, seeing where students were confused, and answer questions that they might have had.  
 
 
 ## Walking Skeleton
-This is the walking skeleton version of the app. Users can create a session, press a button to indicate confusion, and end the session. \
-After ending the session, they can then see timestamps of when they pressed the button. \
-There is no connectivity to other users, and sessions are stored in memory, deleted when another session is started(or the app is closed). \
+This is the walking skeleton version of the app. Users can create a session, press a button to indicate confusion, and end the session.  
+After ending the session, they can then see timestamps of when they pressed the button.  
+There is no connectivity to other users, and sessions are stored in memory, deleted when another session is started(or the app is closed).  
 
 ## Pre-requisites
 - Qt 6 (Widgets, Sql)
