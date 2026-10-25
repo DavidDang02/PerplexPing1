@@ -1,34 +1,34 @@
-// CONTROLLER: the main page. Its slots receive button clicks from the view
-// (mainpage.ui), forward them to the Session model, then ask the view to
-// refresh. All session logic lives in Session; this class only connects the
-// two. (Qt's ui-> pattern needs the controller to be the window itself.)
+// VIEW: the main window. Shows what the controller tells it and announces
+// button clicks as signals. Knows nothing about Session.
 
 #pragma once
 
 #include <QMainWindow>
-
-#include "session.h"
+#include <QStringList>
 
 namespace Ui {
 class MainPage;
 }
 
 class MainPage : public QMainWindow {
-    Q_OBJECT
+  Q_OBJECT
 
-public:
-    explicit MainPage(QWidget *parent = nullptr);
-    ~MainPage();
+ public:
+  explicit MainPage(QWidget* parent = nullptr);
+  ~MainPage();
 
-private slots:
-    void createSession();  // "Start Session" button
-    void clickButton();    // "I'm lost" button
-    void endSession();     // "End Session" button
+  // Display methods the controller calls.
+  void setStatus(const QString& text);
+  void setStartTime(const QString& text);
+  void setEndTime(const QString& text);
+  void setRunning(bool running);              // enables/disables the 3 buttons
+  void showPresses(const QStringList& rows);  // fills timestampList
 
-private:
-    // VIEW update: copies what the model says onto the widgets.
-    void refreshView();
+ signals:
+  void startClicked();
+  void lostClicked();
+  void endClicked();
 
-    Ui::MainPage *ui;             // VIEW: widgets designed in mainpage.ui
-    Session *session = nullptr;   // MODEL: null until the first Start
+ private:
+  Ui::MainPage* ui;
 };

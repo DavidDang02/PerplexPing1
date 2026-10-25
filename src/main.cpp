@@ -5,12 +5,19 @@
 #include <QApplication>
 
 #include "mainpage.h"
+#include "sessioncontroller.h"
 
-int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
+int main(int argc, char* argv[]) {
+  QApplication app(argc, argv);
 
-    MainPage page;
-    page.show();
+  MainPage view;
+  SessionController controller(&view);
 
-    return app.exec();
+  QObject::connect(&view, &MainPage::startClicked, &controller, &SessionController::createSession);
+  QObject::connect(&view, &MainPage::lostClicked, &controller, &SessionController::clickButton);
+  QObject::connect(&view, &MainPage::endClicked, &controller, &SessionController::endSession);
+
+  view.show();
+
+  return app.exec();
 }
