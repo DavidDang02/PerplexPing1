@@ -1,9 +1,9 @@
 #include "doctest.h"
-
 #include "session.h"
+// Made by David
+// Unit test for session.buttonClicked()
 
 // normal case: 3 presses during a running session are recorded in order
-// Made by David
 TEST_CASE("Session properly records 3 button presses during a session") {
     Session s;
     s.buttonClicked();
