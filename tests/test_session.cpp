@@ -3,7 +3,8 @@
 #include "session.h"
 
 // normal case: 3 presses during a running session are recorded in order
-TEST_CASE("Session records button presses during a session") {
+// Made by David
+TEST_CASE("Session properly records 3 button presses during a session") {
     Session s;
     s.buttonClicked();
     s.buttonClicked();
