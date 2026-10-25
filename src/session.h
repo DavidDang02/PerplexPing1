@@ -20,13 +20,13 @@ public:
     void buttonClicked();
 
     bool isEnded() const;
-    int pressCount() const;
+    int getPressCount() const;
     Clock::time_point getStartTime() const;
     Clock::time_point getEndTime() const;  // only meaningful once isEnded()
     const std::vector<Clock::time_point>& getButtonTimestamps() const;
 
     // Seconds from the start of the session to each button press, in order.
-    std::vector<long long> pressOffsetsSeconds() const;
+    std::vector<long long> getPressOffsetsSeconds() const;
 
 private:
     Clock::time_point startTime;

@@ -46,5 +46,5 @@ There is no connectivity to other users, and sessions are stored in memory, dele
   - `Session()`: constructor; saves the session start time.
   - `endSession()`: saves the session end time; no further button presses are recorded.
   - `buttonClicked()`: records the time the button was pressed.
-  - `isEnded()`, `pressCount()`, `pressOffsetsSeconds()`, `getStartTime()`, `getEndTime()`, `getButtonTimestamps()`: read-only getters for the view.
+  - `isEnded()`, `getPressCount()`, `getPressOffsetsSeconds()`, `getStartTime()`, `getEndTime()`, `getButtonTimestamps()`: read-only getters for the view.
 

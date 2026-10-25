@@ -67,18 +67,18 @@ void SessionController::refreshView() {
 
   if (running) {
     view->setStatus(
-        QString("Session running, %1 presses").arg(session->pressCount()));
+        QString("Session running, %1 presses").arg(session->getPressCount()));
     view->setEndTime("Ended: —");
     view->showPresses({});
     return;
   }
 
   view->setStatus(
-      QString("Session ended, %1 presses").arg(session->pressCount()));
+      QString("Session ended, %1 presses").arg(session->getPressCount()));
   view->setEndTime("Ended: " + formatClockTime(session->getEndTime()));
 
   // Each press as "mm:ss in" plus its wall clock time, e.g. "12:34 in (2:47:05 PM)".
-  const std::vector<long long> offsets = session->pressOffsetsSeconds();
+  const std::vector<long long> offsets = session->getPressOffsetsSeconds();
   const std::vector<Session::Clock::time_point>& times = session->getButtonTimestamps();
   QStringList rows;
   for (size_t i = 0; i < offsets.size(); ++i) {

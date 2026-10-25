@@ -21,7 +21,7 @@ bool Session::isEnded() const {
     return ended;
 }
 
-int Session::pressCount() const {
+int Session::getPressCount() const {
     return static_cast<int>(buttonTimestamps.size());
 }
 
@@ -37,7 +37,7 @@ const std::vector<Session::Clock::time_point>& Session::getButtonTimestamps() co
     return buttonTimestamps;
 }
 
-std::vector<long long> Session::pressOffsetsSeconds() const {
+std::vector<long long> Session::getPressOffsetsSeconds() const {
     std::vector<long long> offsets;
     for (const Clock::time_point &press : buttonTimestamps) {
         offsets.push_back(

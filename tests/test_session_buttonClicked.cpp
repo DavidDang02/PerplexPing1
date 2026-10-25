@@ -11,7 +11,7 @@ TEST_CASE("Session properly records 3 button presses during a session") {
     s.buttonClicked();
     s.endSession();
 
-    CHECK(s.pressCount() == 3);
+    CHECK(s.getPressCount() == 3);
     CHECK(s.isEnded());
     const auto &t = s.getButtonTimestamps();
     CHECK(s.getStartTime() <= t.front());
@@ -32,7 +32,7 @@ TEST_CASE("Session records a large number of button presses") {
     s.endSession();
 
     CHECK(s.isEnded());
-    CHECK(s.pressCount() == presses);
+    CHECK(s.getPressCount() == presses);
     const auto &t = s.getButtonTimestamps();
     CHECK(s.getStartTime() <= t.front());
     for (int i = 1; i < presses; ++i) {
