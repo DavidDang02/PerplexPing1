@@ -3,13 +3,21 @@
 // two main() functions will fail to link ("duplicate main").
 
 #include <QApplication>
-#include <QLabel>
 
-int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
+#include "mainpage.h"
+#include "sessioncontroller.h"
 
-    QLabel label("Hello, Qt!");
-    label.show();
+int main(int argc, char* argv[]) {
+  QApplication app(argc, argv);
 
-    return app.exec();
+  MainPage view;
+  SessionController controller(&view);
+
+  QObject::connect(&view, &MainPage::startClicked, &controller, &SessionController::createSession);
+  QObject::connect(&view, &MainPage::lostClicked, &controller, &SessionController::clickButton);
+  QObject::connect(&view, &MainPage::endClicked, &controller, &SessionController::endSession);
+
+  view.show();
+
+  return app.exec();
 }

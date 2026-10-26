@@ -1,38 +1,50 @@
 # PerplexPing
-## User Requirements:
-Mid Lecture Session
-   
-      The user can start a lecture session
-      The user can end a lecture session
-      The user can press a button during their session(representing confusion)
-After Lecture Session
-      
-      The user can see when the button was pressed throughout the lecture
-      This uses real time timestamps for each button press
-
-## Classes
--User.h
+An app that lets an educator to start sessions for their lectures, and students join those sessions.  
   
-   createSession()
-      
-      creates a session, records the start time, saves the address
+Students can press a button when they are confused by the lecture, or submit questions.  
   
-   clickButton()
-     
-      saves a button press to session in an array
-   
-   endSession()
-     
-      triggers endSession() in Session.h
-   viewLastSession()
-      
-      prints out the contents of session.h's timestamps
-   variables: session*
+Both students and educators can see a timeline of the recorded session afterwards, seeing where students were confused, and answer questions that they might have had.  
 
--Session.h
-   
-   endSession()
-      
-      records the time of the session's ending
-   variables: buttonPress[], startTime, endTime
-   
+
+## Walking Skeleton
+This is the walking skeleton version of the app. Users can create a session, press a button to indicate confusion, and end the session.  
+
+After ending the session, they can then see timestamps of when they pressed the button.  
+
+There is no connectivity to other users, and sessions are stored in memory, deleted when another session is started(or the app is closed).  
+
+## Pre-requisites
+- Qt 6 (Widgets, Sql)
+- CMake 3.16+
+
+## Setup Instructions
+1. ```git clone https://github.com/SuaceFace/PerplexPing1```
+2. ```cd src```
+3. ```cmake --build build```
+
+## Run
+1. ```./build/app```
+2. Press **Start Session** to begin a lecture session.
+3. Press **I'm lost** whenever you are confused during the session.
+4. Press **End Session** to finish the session.
+5. The window shows the session's start time and, once it ends, its end time.
+6. After the session ends, the window lists every press, both as time since the start and as the real (wall clock) time.
+
+
+## Classes (MVC)
+
+- **View:** `src/mainpage.ui` (Qt Designer)
+  - A status label, start/end time labels, the Start Session / I'm lost / End Session buttons, and a list of press times.
+- **Controller:** `MainPage` (`src/mainpage.h`, `src/mainpage.cpp`)
+  - Knows: `Session*`
+  - `createSession()`: creates a new session (replacing the old one) and stores it in `session`.
+  - `clickButton()`: calls `buttonClicked()` on the session.
+  - `endSession()`: calls `endSession()` on the session.
+  - `refreshView()`: reads the session and updates the widgets.
+- **Model:** `Session` (`src/session.h`, `src/session.cpp`)
+  - Knows: `buttonTimestamps`, `startTime`, `endTime`
+  - `Session()`: constructor; saves the session start time.
+  - `endSession()`: saves the session end time; no further button presses are recorded.
+  - `buttonClicked()`: records the time the button was pressed.
+  - `isEnded()`, `getPressCount()`, `getPressOffsetsSeconds()`, `getStartTime()`, `getEndTime()`, `getButtonTimestamps()`: read-only getters for the view.
+
