@@ -17,20 +17,20 @@ public:
     void endSession();
 
     // Records the time the button was pressed (ignored once the session ended).
-    void buttonClicked();
+    void lostButtonClicked();
 
     bool isEnded() const;
     int getPressCount() const;
     Clock::time_point getStartTime() const;
     Clock::time_point getEndTime() const;  // only meaningful once isEnded()
-    const std::vector<Clock::time_point>& getButtonTimestamps() const;
+    const std::vector<Clock::time_point>& getLostButtonTimestamps() const;
 
     // Seconds from the start of the session to each button press, in order.
     std::vector<long long> getPressOffsetsSeconds() const;
 
 private:
     Clock::time_point startTime;
-    Clock::time_point endTime;
-    std::vector<Clock::time_point> buttonTimestamps;
+    Clock::time_point endTime = Clock::time_point{}; //nonsense default value
+    std::vector<Clock::time_point> lostButtonTimestamps;
     bool ended = false;
 };

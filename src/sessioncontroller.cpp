@@ -22,9 +22,9 @@ void SessionController::createSession() {
   refreshView();
 }
 
-void SessionController::clickButton() {
+void SessionController::clickLostButton() {
   if (session != nullptr) {
-    session->buttonClicked();
+    session->lostButtonClicked();
   }
   refreshView();
 }
@@ -79,7 +79,7 @@ void SessionController::refreshView() {
 
   // Each press as "mm:ss in" plus its wall clock time, e.g. "12:34 in (2:47:05 PM)".
   const std::vector<long long> offsets = session->getPressOffsetsSeconds();
-  const std::vector<Session::Clock::time_point>& times = session->getButtonTimestamps();
+  const std::vector<Session::Clock::time_point>& times = session->getLostButtonTimestamps();
   QStringList rows;
   for (size_t i = 0; i < offsets.size(); ++i) {
     rows.append(formatOffset(offsets[i]) + " (" + formatClockTime(times[i]) + ")");

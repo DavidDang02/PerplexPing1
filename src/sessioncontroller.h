@@ -17,9 +17,9 @@ class SessionController : public QObject {
   ~SessionController();
 
  public slots:
-  void createSession();  // "Start Session"
-  void clickButton();    // "I'm lost"
-  void endSession();     // "End Session"
+  void createSession();    // "Start Session"
+  void clickLostButton();  // "I'm lost"
+  void endSession();       // "End Session"
 
  private:
   void refreshView();  // reads Session, formats text, calls view display methods

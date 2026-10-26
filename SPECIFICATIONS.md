@@ -27,7 +27,7 @@ Knows: MainPage* view (not owned), Session* session (owned).
 
 Slots (handle View signals):
 - createSession(): deletes any existing session, instantiates a new Session, and updates the view.
-- clickButton(): tells the active Session that a confusion ping was triggered.  
+- clickLostButton(): tells the active Session that a confusion ping was triggered.  
 - endSession(): ends the current Session.  
 
 
@@ -46,5 +46,5 @@ Methods:
 - Session(): records the start time upon creation.
 - buttonClicked(): logs a timestamp for each button press while active.
 - endSession(): locks the session and sets the end timestamp.
-- isEnded(), getPressCount(), getStartTime(), getEndTime(), getButtonTimestamps(): read-only accessors.
+- isEnded(), getPressCount(), getStartTime(), getEndTime(), getLostButtonTimestamps(): read-only accessors.
 - getPressOffsetsSeconds(): calculates the relative offset in seconds from session start for each press.
