@@ -33,18 +33,32 @@ There is no connectivity to other users, and sessions are stored in memory, dele
 
 ## Classes (MVC)
 
-- **View:** `src/mainpage.ui` (Qt Designer)
-  - A status label, start/end time labels, the Start Session / I'm lost / End Session buttons, and a list of press times.
-- **Controller:** `MainPage` (`src/mainpage.h`, `src/mainpage.cpp`)
-  - Knows: `Session*`
-  - `createSession()`: creates a new session (replacing the old one) and stores it in `session`.
-  - `clickButton()`: calls `buttonClicked()` on the session.
-  - `endSession()`: calls `endSession()` on the session.
-  - `refreshView()`: reads the session and updates the widgets.
-- **Model:** `Session` (`src/session.h`, `src/session.cpp`)
-  - Knows: `buttonTimestamps`, `startTime`, `endTime`
-  - `Session()`: constructor; saves the session start time.
-  - `endSession()`: saves the session end time; no further button presses are recorded.
-  - `buttonClicked()`: records the time the button was pressed.
-  - `isEnded()`, `getPressCount()`, `getPressOffsetsSeconds()`, `getStartTime()`, `getEndTime()`, `getButtonTimestamps()`: read-only getters for the view.
+- **View:** `MainPage` (`src/mainpage.h`, `src/mainpage.cpp`, `src/mainpage.ui`)
+  - Displays session state to the user and announces UI interactions via signals. Knows nothing about the `Session` model.
+  - **Widgets:** Status label, start/end time labels, "Start Session" / "I'm lost" / "End Session" buttons, and the timestamp list.
+  - **Display methods (called by Controller):**
+    - `setStatus(const QString&)`: updates the status label text.
+    - `setStartTime(const QString&)` / `setEndTime(const QString&)`: updates the session timestamp labels.
+    - `setRunning(bool)`: toggles button enabled/disabled states based on session activity.
+    - `showPresses(const QStringList&)`: populates the timestamp list widget with formatted press times.
+  - **Signals:** `startClicked()`, `lostClicked()`, `endClicked()`.
 
+- **Controller:** `SessionController` (`src/sessioncontroller.h`, `src/sessioncontroller.cpp`)
+  - Mediates between the `MainPage` view and the `Session` model. Has no GUI widgets of its own.
+  - **Knows:** `MainPage* view` (not owned), `Session* session` (owned).
+  - **Slots (handle View signals):**
+    - `createSession()`: deletes any existing session, instantiates a new `Session`, and updates the view.
+    - `clickButton()`: tells the active `Session` that a confusion ping was triggered.
+    - `endSession()`: ends the current `Session`.
+  - **Internal helpers:**
+    - `refreshView()`: inspects model state, formats elapsed times ("mm:ss in") and wall clock timestamps, and calls the view's display methods.
+
+- **Model:** `Session` (`src/session.h`, `src/session.cpp`)
+  - Pure C++ representation of a single lecture session (no Qt dependencies).
+  - **Knows:** `startTime`, `endTime`, `buttonTimestamps`, `ended`.
+  - **Methods:**
+    - `Session()`: records the start time upon creation.
+    - `buttonClicked()`: logs a timestamp for each button press while active.
+    - `endSession()`: locks the session and sets the end timestamp.
+    - `isEnded()`, `getPressCount()`, `getStartTime()`, `getEndTime()`, `getButtonTimestamps()`: read-only accessors.
+    - `getPressOffsetsSeconds()`: calculates the relative offset in seconds from session start for each press.
