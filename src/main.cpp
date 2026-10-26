@@ -14,10 +14,10 @@ int main(int argc, char* argv[]) {
   SessionController controller(&view);
 
   QObject::connect(&view, &MainPage::startClicked, &controller, &SessionController::createSession);
-  QObject::connect(&view, &MainPage::lostClicked, &controller, &SessionController::clickButton);
+  QObject::connect(&view, &MainPage::lostClicked, &controller, &SessionController::clickLostButton);
   QObject::connect(&view, &MainPage::endClicked, &controller, &SessionController::endSession);
 
   view.show();
-
+  
   return app.exec();
 }

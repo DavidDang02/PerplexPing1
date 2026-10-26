@@ -14,7 +14,7 @@ TEST_CASE("New session initializes in non-ended state with zero presses") {
 
     CHECK(session.isEnded() == false);
     CHECK(session.getPressCount() == 0);
-    CHECK(session.getButtonTimestamps().empty());
+    CHECK(session.getLostButtonTimestamps().empty());
 }
 
 // Wrong case: calling endSession() twice preserves the initial end time

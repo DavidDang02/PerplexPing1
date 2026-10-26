@@ -29,7 +29,7 @@ There is no connectivity to other users, and sessions are stored in memory, dele
 4. Press **End Session** to finish the session.
 5. The window shows the session's start time and, once it ends, its end time.
 6. After the session ends, the window lists every press, both as time since the start and as the real (wall clock) time.
-    - `buttonClicked()`: logs a timestamp for each button press while active.
+    - `lostButtonClicked()`: logs a timestamp for each button press while active.
     - `endSession()`: locks the session and sets the end timestamp.
-    - `isEnded()`, `getPressCount()`, `getStartTime()`, `getEndTime()`, `getButtonTimestamps()`: read-only accessors.
+    - `isEnded()`, `getPressCount()`, `getStartTime()`, `getEndTime()`, `getLostButtonTimestamps()`: read-only accessors.
     - `getPressOffsetsSeconds()`: calculates the relative offset in seconds from session start for each press.

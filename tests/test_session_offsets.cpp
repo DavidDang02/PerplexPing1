@@ -10,11 +10,11 @@
 // normal case: presses about one second apart get offsets of 0, 1 and 2 seconds
 TEST_CASE("getPressOffsetsSeconds gives one offset per press from the start") {
     Session session;
-    session.buttonClicked();
+    session.lostButtonClicked();
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
-    session.buttonClicked();
+    session.lostButtonClicked();
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
-    session.buttonClicked();
+    session.lostButtonClicked();
 
     const std::vector<long long> offsets = session.getPressOffsetsSeconds();
     REQUIRE(offsets.size() == 3);
@@ -28,9 +28,9 @@ TEST_CASE("getPressOffsetsSeconds gives one offset per press from the start") {
 // 0, so the check below could never fail.
 TEST_CASE("getPressOffsetsSeconds never goes backwards") {
     Session session;
-    session.buttonClicked();
+    session.lostButtonClicked();
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
-    session.buttonClicked();
+    session.lostButtonClicked();
 
     const std::vector<long long> offsets = session.getPressOffsetsSeconds();
     REQUIRE(offsets.size() == 2);
