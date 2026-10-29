@@ -39,12 +39,12 @@ Model: Session (src/session.h, src/session.cpp)
 Pure C++ representation of a single lecture session (no Qt dependencies).  
 
 
-Knows: startTime, endTime, buttonTimestamps, ended.  
+Knows: startTime, endTime, lostButtonTimestamps, ended.  
 
 
 Methods:
 - Session(): records the start time upon creation.
-- buttonClicked(): logs a timestamp for each button press while active.
+- lostButtonClicked(): logs a timestamp for each button press while active.
 - endSession(): locks the session and sets the end timestamp.
 - isEnded(), getPressCount(), getStartTime(), getEndTime(), getLostButtonTimestamps(): read-only accessors.
 - getPressOffsetsSeconds(): calculates the relative offset in seconds from session start for each press.
