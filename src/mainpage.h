@@ -1,5 +1,6 @@
-// VIEW: the main window. Shows what the controller tells it and announces
-// button clicks as signals. Knows nothing about Session.
+// VIEW: the main window after logging in. Lists previous sessions, shows the
+// details of the selected one, and announces button clicks as signals.
+// Knows nothing about Session.
 
 #pragma once
 
@@ -17,17 +18,19 @@ class MainPage : public QMainWindow {
   explicit MainPage(QWidget* parent = nullptr);
   ~MainPage();
 
-  // Display methods the controller calls.
+  // Display methods the controller calls. The time and press methods fill
+  // the "Session details" panel.
   void setStatus(const QString& text);
   void setStartTime(const QString& text);
   void setEndTime(const QString& text);
-  void setRunning(bool running);              // enables/disables the 3 buttons
+  void setRunning(bool running);              // enables/disables Start and Log Out
   void showPresses(const QStringList& rows);  // fills timestampList
+  void showSessions(const QStringList& rows); // fills sessionList
 
  signals:
   void startClicked();
-  void lostClicked();
-  void endClicked();
+  void logoutClicked();
+  void sessionSelected(int index);  // row in sessionList that was clicked
 
  private:
   Ui::MainPage* ui;
