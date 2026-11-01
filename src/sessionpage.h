@@ -18,7 +18,8 @@ class SessionPage : public QMainWindow {
   explicit SessionPage(QWidget* parent = nullptr);
   ~SessionPage();
 
-  void clearQuestion();  // empties the question box
+  void setStatus(const QString& text);  // sets statusLabel
+  void clearQuestion();                 // empties the question box
 
  signals:
   void lostClicked();

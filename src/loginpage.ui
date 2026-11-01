@@ -74,9 +74,32 @@
      </layout>
     </item>
     <item>
+     <widget class="QLabel" name="errorLabel">
+      <property name="visible">
+       <bool>false</bool>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: #b00020; background-color: #fde7e9; border: 1px solid #b00020; border-radius: 4px; padding: 6px;</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignmentFlag::AlignCenter</set>
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="QPushButton" name="loginButton">
       <property name="text">
        <string>Log In</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QPushButton" name="registerButton">
+      <property name="text">
+       <string>Create Account</string>
       </property>
      </widget>
     </item>
