@@ -18,8 +18,12 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <iostream>
 
 #include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QDebug>
 #include <QString>
 
 #include "session.h"
@@ -38,7 +42,7 @@ public:
     bool open();
 
     // ---- Users ----
-    // Saves a new user with a salted hash of the password.
+    // Saves a new user with the password.
     // nullopt if the name is empty, the password is empty, or the name is taken.
     std::optional<User> registerUser(const std::string& name, const std::string& password);
 
@@ -65,4 +69,6 @@ public:
 
 private:
     QString connectionName;
+    QSqlDatabase db;
+    //QString path;
 };
