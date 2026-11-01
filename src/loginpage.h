@@ -19,10 +19,16 @@ class LoginPage : public QMainWindow {
 
   QString username() const;
   QString password() const;
-  void clearFields();  // empties both fields, e.g. after logging out
+  void clearFields();  // empties both fields and hides the error, e.g. after logging out
+
+  // Shows the red error box with `message`, e.g. "Account not found",
+  // "Password incorrect" or "Username already in use".
+  void showError(const QString& message);
+  void clearError();  // hides the red error box
 
  signals:
   void loginClicked();
+  void registerClicked();  // "Create Account"
 
  private:
   Ui::LoginPage* ui;

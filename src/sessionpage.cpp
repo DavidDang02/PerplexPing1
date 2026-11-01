@@ -13,6 +13,10 @@ SessionPage::~SessionPage() {
   delete ui;
 }
 
+void SessionPage::setStatus(const QString& text) {
+  ui->statusLabel->setText(text);
+}
+
 void SessionPage::clearQuestion() {
   ui->questionEdit->clear();
 }
