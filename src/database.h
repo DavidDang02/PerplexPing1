@@ -25,6 +25,7 @@
 
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QSqlRecord>
 #include <QSqlError>
 #include <QDebug>
 #include <QString>
@@ -58,7 +59,7 @@ public:
     Session createSession(int userId);
 
     // Saves one input of a session. Call after Session::addInput returned true.
-    void saveInput(int sessionId, SessionInput& input);
+    void saveInput(int sessionId, int userId, SessionInput& input);
 
     // Saves the end time. Call after Session::endSession.
     void saveSessionEnd(int sessionId, Session::Clock::time_point endTime);
@@ -69,6 +70,11 @@ public:
 
     // Every session the user started, newest first, each with its inputs.
     std::vector<Session> listSessionsForUser(int userId);
+
+
+    std::string convertTimeToString(std::chrono::system_clock::time_point time);
+
+    std::chrono::system_clock::time_point convertStringToTime(std::string time);
 
 private:
     QString connectionName;

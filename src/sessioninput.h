@@ -16,6 +16,7 @@ public:
     SessionInput(InputType type, Clock::time_point time, std::string questionText = "");
 
     void setId(int id);
+    int getId();
     InputType getType() const;
     bool isQuestion() const;
     Clock::time_point getTime() const;

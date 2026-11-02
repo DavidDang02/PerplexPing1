@@ -22,20 +22,20 @@ bool Database::open() {
 
 	// Create tables
 	QSqlQuery query;
-	bool status = query.exec("CREATE TABLE IF NOT EXISTS Users (user_id INTEGER PRIMARY KEY AUTOINCREMENT, user_name VARCHAR(255) NOT NULL UNIQUE, user_password VARCHAR(255) NOT NULL);");
+	bool status = query.exec("CREATE TABLE IF NOT EXISTS Users (user_id INTEGER PRIMARY KEY, user_name VARCHAR(255) NOT NULL UNIQUE, user_password VARCHAR(255) NOT NULL);");
 	if(!status){
 		//qDebug() << "Failed to create Users table: " << query.lastError().text();
 		std::cout << "Failed to create Users table: " << query.lastError().text().toStdString() << std::endl;
 		return false;
 	}
 
-	status = query.exec("CREATE TABLE IF NOT EXISTS Sessions (session_id INTEGER PRIMARY KEY AUTOINCREMENT, host_id INTEGER NOT NULl, start_date VARCHAR(255) NOT NULL);");
+	status = query.exec("CREATE TABLE IF NOT EXISTS Sessions (session_id INTEGER PRIMARY KEY, host_id INTEGER NOT NULl, start_date VARCHAR(255) NOT NULL, end_date VARCHAR(255));");
 	if(!status){
 		std::cout << "Failed to create Sessions table: " << query.lastError().text().toStdString() << std::endl;
 		return false;
 	}
 
-	status = query.exec("CREATE TABLE IF NOT EXISTS Sessioninputs (input_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, session_id INTEGER NOT NULL, input_time VARCHAR(255) NOT NULL, input_type VARCHAR(255) NOT NULL, input_question VARCHAR(255));");
+	status = query.exec("CREATE TABLE IF NOT EXISTS Sessioninputs (input_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, session_id INTEGER NOT NULL, input_time VARCHAR(255) NOT NULL, input_type VARCHAR(255) NOT NULL, input_question VARCHAR(255));");
 	if(!status){
 		std::cout << "Failed to create Sessioninputs table: " << query.lastError().text().toStdString() << std::endl;
 		return false;
@@ -58,11 +58,11 @@ std::optional<User> Database::registerUser(const std::string& name, const std::s
 			return std::nullopt;
 		}
 	}
-	return login(name, password);
+	return User(query.lastInsertId().toInt(), std::move(name));
 }
 
 std::optional<User> Database::login(const std::string& name, const std::string& password) {
-	QSqlQuery query;
+QSqlQuery query;
 	query.prepare("SELECT user_id, user_name, user_password FROM Users WHERE user_name = :name AND user_password = :password;");
 	query.bindValue(":name", QString::fromStdString(name));
 	query.bindValue(":password", QString::fromStdString(password));
@@ -87,10 +87,7 @@ Session Database::createSession(int userId) {
 	QSqlQuery query;
 
 	Session current_session(userId);
-	auto t = std::chrono::system_clock::to_time_t(current_session.getStartTime());
-	std::ostringstream s;
-	s << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
-	std::string time = s.str();
+	std::string time = convertTimeToString(current_session.getStartTime());
 	
 	query.prepare("INSERT INTO Sessions (host_id, start_date) VALUES(:user_id, :startDate);");
 	query.bindValue(":user_id", userId);
@@ -101,7 +98,7 @@ Session Database::createSession(int userId) {
 		return Session(-1, -1);
 	}
 
-	query.prepare("SELECT session_id FROM Sessions WHERE host_id = :user_id;");
+	/**query.prepare("SELECT session_id FROM Sessions WHERE host_id = :user_id;");
 	query.bindValue(":user_id", userId);
 	status = query.exec();
 	if(!status){
@@ -109,27 +106,25 @@ Session Database::createSession(int userId) {
 		return Session(-1, -1);
 	}
 
-	if(query.next()){
-		int sessionId = query.value(0).toInt();
+	if(query.next()){**/
+		int sessionId = query.lastInsertId().toInt();
 		current_session.setId(sessionId);
 		return current_session;
-	} else {
+	/**} else {
 		std::cout << "Database::createSession SQL could not find the created session" << std::endl;
 		return Session(-1, -1);
-	}
+	}**/
 }
 
 
-void Database::saveInput(int sessionId, SessionInput& input){
+void Database::saveInput(int sessionId, int userId, SessionInput& input){
 
 	QSqlQuery query;
-	query.prepare("INSERT INTO Sessioninputs (session_id, input_time, input_type, input_question) VALUES(:sessionid, :inputtime, :inputtype, :inputquestion);");
+	query.prepare("INSERT INTO Sessioninputs (session_id, user_id, input_time, input_type, input_question) VALUES(:sessionid, :userid, :inputtime, :inputtype, :inputquestion);");
 	query.bindValue(":sessionid", sessionId);
-
-	auto t = std::chrono::system_clock::to_time_t(input.getTime());
-	std::ostringstream s;
-	s << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
-	std::string time = s.str();
+	query.bindValue(":userid", userId);
+	
+	std::string time = convertTimeToString(input.getTime());
 
 	query.bindValue(":inputtime", QString::fromStdString(time));
 	if(input.getType() == InputType::Lost){
@@ -144,24 +139,117 @@ void Database::saveInput(int sessionId, SessionInput& input){
 	if(!status){
 		std::cout << "Database::saveInput Failed to insert input: " << query.lastError().text().toStdString() << std::endl;
 	}
-	query.prepare("SELECT input_id FROM Sessioninputs WHERE session_id = :sessionid;");
+	/**query.prepare("SELECT input_id FROM Sessioninputs WHERE session_id = :sessionid;");
 	query.bindValue(":sessionid", sessionId);
-	if(query.next()){
-		input.setId(query.value(0).toInt());
+	status = query.exec();
+	if(!status){
+		std::cout << "Database::saveInput Failed to get input_id from Database" << query.lastError().text().toStdString() << std::endl;
+		input.setId(-1);
 		return;
 	}
-
-	std::cout << "Database::saveInput Failed to get input_id from Database" << query.lastError().text().toStdString() << std::endl;
-	return;
+	if(query.next()){**/
+		input.setId(query.lastInsertId().toInt());
+		return;
+	//}
 }
 
-//std::vector<Session> listSessionsForUser(int sessionId){
-	//QSqlQuery query;
-	//query.exec("SELECT s.session_id, i.input_time
+std::vector<Session> Database::listSessionsForUser(int userId){
+	QSqlQuery query;
+	std::vector<Session> sessions;
+	query.prepare("SELECT session_id, start_date FROM Sessions WHERE host_id = :hostid;");
+	query.bindValue(":hostid", userId);
+	bool status = query.exec();
+	if(!status){
+		std::cout << "Database::listSessionsForUser Failed to get sessions for user: " << query.lastError().text().toStdString() << std::endl;
+		return sessions;
+	}
+	while(query.next()){
+		int sessionId = query.value(0).toInt();
+		std::string startDate = query.value(1).toString().toStdString();
 
-//}
+		Session s(sessionId, userId, convertStringToTime(startDate), true);
+		sessions.push_back(s);
+	}
 
-//void Database::saveSessionEnd(int sessionId, Session::Clock::time_point endTime) {
+	//query.prepare(SELECT );
 
-	
-//}
+	return sessions;
+
+}
+
+void Database::saveSessionEnd(int sessionId, Session::Clock::time_point endTime) {
+
+	QSqlQuery query;
+	query.prepare("UPDATE Sessions SET end_date = :endDate WHERE session_id = :sessionId;");
+
+	std::string time = convertTimeToString(endTime);
+
+	query.bindValue(":endDate", QString::fromStdString(time));
+	query.bindValue(":sessionId", sessionId);
+	if(!query.exec()){
+		std::cout << "Database::saveSessionEnd could not update end_date column on given session_id: " << query.lastError().text().toStdString() << std::endl;
+	}
+
+}
+
+
+std::optional<Session> Database::loadSession(int sessionId){
+	QSqlQuery query;
+
+	query.prepare("SELECT * FROM Sessions JOIN Sessioninputs USING(session_id) WHERE Sessions.session_id = :sessionId ORDER BY session_id;");
+	query.bindValue(":sessionId", sessionId);
+	if(!query.exec()){
+		std::cout << "Database::loadSession query failed: " << query.lastError().text().toStdString() << std::endl;
+		return std::nullopt;
+	}
+	if(!query.next()){
+		std::cout << "Database::loadSession no session found for session_id " << sessionId << std::endl;
+		return std::nullopt;
+	}
+	QSqlRecord rec = query.record();
+	int session_id_column = rec.indexOf("session_id");
+	int host_id_column = rec.indexOf("host_id");
+	int start_time_column = rec.indexOf("start_date");
+	int end_time_column = rec.indexOf("end_date");
+	int input_id_column = rec.indexOf("input_id");
+	int input_time_column = rec.indexOf("input_time");
+	int input_type_column = rec.indexOf("input_type");
+	int input_question_column = rec.indexOf("input_question");
+
+	std::cout << "session_id: " << query.value(session_id_column).toString().toStdString() << std::endl;
+	std::cout << "host_id: " << query.value(host_id_column).toString().toStdString() << std::endl;
+	std::cout << "start_time: " << query.value(start_time_column).toString().toStdString() << std::endl;
+	std::cout << "end_time: " << query.value(end_time_column).toString().toStdString() << std::endl;
+	std::cout << "input_id: " << query.value(input_id_column).toString().toStdString() << std::endl;
+	std::cout << "input_time: " << query.value(input_time_column).toString().toStdString() << std::endl;
+	std::cout << "input_type: " << query.value(input_type_column).toString().toStdString() << std::endl;
+	std::cout << "input_question: " << query.value(input_question_column).toString().toStdString() << std::endl;
+
+	return std::nullopt;
+
+}
+std::string Database::convertTimeToString(std::chrono::system_clock::time_point time){
+
+	auto t = std::chrono::system_clock::to_time_t(time);
+	std::ostringstream s;
+	s << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
+	return s.str();
+
+}
+
+
+
+std::chrono::system_clock::time_point Database::convertStringToTime(std::string time){
+
+	std::tm tm = {};
+	std::istringstream ss(time);
+	// Parse string into tm struct
+	ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
+	if (ss.fail()) {
+		throw std::runtime_error("Failed to parse date/time string");
+	}
+	// Convert to time_t (local time) then to time_point
+	std::time_t t = std::mktime(&tm);
+	 return std::chrono::system_clock::from_time_t(t);
+
+}

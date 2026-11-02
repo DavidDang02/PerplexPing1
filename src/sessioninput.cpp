@@ -8,6 +8,11 @@ SessionInput::SessionInput(InputType type, Clock::time_point time, std::string q
 void SessionInput::setId(int id){
     this->id = id;
 }
+
+int SessionInput::getId(){
+    return id;
+}
+
 InputType SessionInput::getType() const {
     return type;
 }
