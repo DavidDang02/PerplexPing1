@@ -6,14 +6,45 @@ AppModel::AppModel(Database* db) : db(db) {}
 
 // ---- Accounts ----
 
-std::optional<User> AppModel::registerUser(const std::string& name, const std::string& password) {
-    currentUser = db->registerUser(name, password);
-    return currentUser;
+// Removes spaces, tabs and newlines from both ends.
+static std::string trim(const std::string& text) {
+    const char* space = " \t\r\n";
+    const auto first = text.find_first_not_of(space);
+    if (first == std::string::npos) {
+        return "";
+    }
+    const auto last = text.find_last_not_of(space);
+    return text.substr(first, last - first + 1);
 }
 
-std::optional<User> AppModel::logIn(const std::string& name, const std::string& password) {
+// The checks both actions share, before asking the database.
+static AuthError checkFields(const std::string& name, const std::string& password) {
+    if (name.empty()) {
+        return AuthError::EmptyName;
+    }
+    if (password.empty()) {
+        return AuthError::EmptyPassword;
+    }
+    return AuthError::None;
+}
+
+AuthError AppModel::registerUser(const std::string& rawName, const std::string& password) {
+    const std::string name = trim(rawName);
+    if (AuthError error = checkFields(name, password); error != AuthError::None) {
+        return error;
+    }
+    // The fields are valid, so the database only refuses a name that is taken.
+    currentUser = db->registerUser(name, password);
+    return currentUser ? AuthError::None : AuthError::NameTaken;
+}
+
+AuthError AppModel::logIn(const std::string& rawName, const std::string& password) {
+    const std::string name = trim(rawName);
+    if (AuthError error = checkFields(name, password); error != AuthError::None) {
+        return error;
+    }
     currentUser = db->login(name, password);
-    return currentUser;
+    return currentUser ? AuthError::None : AuthError::WrongLogin;
 }
 
 void AppModel::logOut() {

@@ -11,6 +11,7 @@ TEST_CASE("AppModel: nothing works until a user is logged in") {
     AppModel model(&db);
 
     CHECK_FALSE(model.isLoggedIn());
+    CHECK(model.getCurrentUser() == nullptr);
     CHECK_FALSE(model.startSession());
     CHECK_FALSE(model.clickLostButton());
     CHECK(model.getPastSessions().empty());
@@ -21,21 +22,42 @@ TEST_CASE("AppModel: register logs in, and login only works with the right passw
     REQUIRE(db.open());
     AppModel model(&db);
 
-    REQUIRE(model.registerUser("ana", "pw"));
+    REQUIRE(model.registerUser("ana", "pw") == AuthError::None);
     CHECK(model.isLoggedIn());
     CHECK(model.getCurrentUser()->getName() == "ana");
 
     model.logOut();
     CHECK_FALSE(model.isLoggedIn());
-    CHECK_FALSE(model.logIn("ana", "wrong"));
-    CHECK(model.logIn("ana", "pw"));
+    CHECK(model.logIn("ana", "wrong") == AuthError::WrongLogin);
+    CHECK_FALSE(model.isLoggedIn());
+    CHECK(model.logIn("ana", "pw") == AuthError::None);
+}
+
+TEST_CASE("AppModel: login and register say why they failed") {
+    Database db(":memory:");
+    REQUIRE(db.open());
+    AppModel model(&db);
+
+    CHECK(model.registerUser("", "pw") == AuthError::EmptyName);
+    CHECK(model.registerUser("   ", "pw") == AuthError::EmptyName);  // only spaces
+    CHECK(model.registerUser("ana", "") == AuthError::EmptyPassword);
+    CHECK(model.logIn("", "pw") == AuthError::EmptyName);
+    CHECK(model.logIn("ana", "") == AuthError::EmptyPassword);
+    CHECK(model.logIn("nobody", "pw") == AuthError::WrongLogin);  // same as a wrong password
+    CHECK_FALSE(model.isLoggedIn());
+
+    REQUIRE(model.registerUser("  ana ", "pw") == AuthError::None);  // name is trimmed
+    CHECK(model.getCurrentUser()->getName() == "ana");
+    model.logOut();
+    CHECK(model.registerUser("ana", "other") == AuthError::NameTaken);
+    CHECK(model.logIn(" ana", "pw") == AuthError::None);
 }
 
 TEST_CASE("AppModel: a session's inputs are saved and come back after logging in again") {
     Database db(":memory:");
     REQUIRE(db.open());
     AppModel model(&db);
-    REQUIRE(model.registerUser("ana", "pw"));
+    REQUIRE(model.registerUser("ana", "pw") == AuthError::None);
 
     REQUIRE(model.startSession());
     CHECK(model.getCurrentSession()->getId() > 0);  // the database gave it an id
@@ -48,7 +70,7 @@ TEST_CASE("AppModel: a session's inputs are saved and come back after logging in
     CHECK_FALSE(model.clickLostButton());  // nothing to press into after End
 
     model.logOut();
-    REQUIRE(model.logIn("ana", "pw"));
+    REQUIRE(model.logIn("ana", "pw") == AuthError::None);
     std::vector<Session> past = model.getPastSessions();
     REQUIRE(past.size() == 1);
     CHECK(past[0].isEnded());
@@ -62,7 +84,7 @@ TEST_CASE("AppModel: users only see their own sessions, newest first") {
     REQUIRE(db.open());
     AppModel model(&db);
 
-    REQUIRE(model.registerUser("ana", "pw"));
+    REQUIRE(model.registerUser("ana", "pw") == AuthError::None);
     model.startSession();
     model.endSession();
     model.startSession();
@@ -70,11 +92,11 @@ TEST_CASE("AppModel: users only see their own sessions, newest first") {
     model.endSession();
     model.logOut();
 
-    REQUIRE(model.registerUser("ben", "pw"));
+    REQUIRE(model.registerUser("ben", "pw") == AuthError::None);
     CHECK(model.getPastSessions().empty());
     model.logOut();
 
-    REQUIRE(model.logIn("ana", "pw"));
+    REQUIRE(model.logIn("ana", "pw") == AuthError::None);
     std::vector<Session> past = model.getPastSessions();
     REQUIRE(past.size() == 2);
     CHECK(past[0].getId() == newestId);

@@ -32,6 +32,18 @@ static QString formatInput(const Session& session, const SessionInput& input) {
   return when + " · I'm lost";
 }
 
+// The message the login page shows for each reason AppModel gives.
+static QString authMessage(AuthError error) {
+  switch (error) {
+    case AuthError::EmptyName:     return "Enter a username.";
+    case AuthError::EmptyPassword: return "Enter a password.";
+    case AuthError::NameTaken:     return "That username is already taken.";
+    case AuthError::WrongLogin:    return "Wrong username or password.";
+    case AuthError::None:          break;
+  }
+  return "";
+}
+
 // ---- Setup ----
 
 AppController::AppController(AppModel* model, LoginPage* loginPage, MainPage* mainPage,
@@ -67,9 +79,10 @@ void AppController::goTo(QWidget* page) {
 // ---- Login page ----
 
 void AppController::logIn() {
-  if (!model->logIn(loginPage->username().trimmed().toStdString(),
-                    loginPage->password().toStdString())) {
-    loginPage->showError("Wrong username or password.");
+  const AuthError error = model->logIn(loginPage->username().toStdString(),
+                                       loginPage->password().toStdString());
+  if (error != AuthError::None) {
+    loginPage->showError(authMessage(error));
     return;
   }
   loginPage->clearFields();
@@ -77,9 +90,10 @@ void AppController::logIn() {
 }
 
 void AppController::registerUser() {
-  if (!model->registerUser(loginPage->username().trimmed().toStdString(),
-                           loginPage->password().toStdString())) {
-    loginPage->showError("Enter a username and password. The username may already be taken.");
+  const AuthError error = model->registerUser(loginPage->username().toStdString(),
+                                              loginPage->password().toStdString());
+  if (error != AuthError::None) {
+    loginPage->showError(authMessage(error));
     return;
   }
   loginPage->clearFields();

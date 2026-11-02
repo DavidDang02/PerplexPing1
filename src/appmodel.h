@@ -13,14 +13,20 @@
 
 class Database;
 
+// Why logging in or registering failed. None means it worked.
+// Login doesn't say whether the name or the password was wrong, so the app
+// never reveals which usernames exist.
+enum class AuthError { None, EmptyName, EmptyPassword, NameTaken, WrongLogin };
+
 class AppModel {
 public:
     explicit AppModel(Database* db);  // not owned
 
     // ---- Accounts ----
-    // Both log the user in on success. nullopt if it failed.
-    std::optional<User> registerUser(const std::string& name, const std::string& password);
-    std::optional<User> logIn(const std::string& name, const std::string& password);
+    // Both log the user in on success and return AuthError::None.
+    // The name is trimmed first, so " ana " and "ana" are the same user.
+    AuthError registerUser(const std::string& name, const std::string& password);
+    AuthError logIn(const std::string& name, const std::string& password);
     void logOut();  // also forgets any running session
 
     bool isLoggedIn() const;
