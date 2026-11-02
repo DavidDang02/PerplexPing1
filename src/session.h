@@ -18,8 +18,12 @@ public:
     // Starts a session with id 0 and user 0.
     Session();
 
+    Session(int userId);
+
     // A session with a real id, owned by userId.
-    Session(int id, int userId, Clock::time_point startTime);
+    Session(int id, int userId);
+
+    Session(int id, int userId, Clock::time_point startTime, bool ended);
 
     // Saves the end time (now, or `when` when loading from the database).
     // After this, inputs are no longer recorded. Ending twice does nothing.
@@ -35,6 +39,7 @@ public:
 
     bool isEnded() const;
     int getId() const;
+    void setId(int id);
     int getUserId() const;
     Clock::time_point getStartTime() const;
     Clock::time_point getEndTime() const;  // only meaningful once isEnded()

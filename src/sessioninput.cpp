@@ -5,6 +5,9 @@
 SessionInput::SessionInput(InputType type, Clock::time_point time, std::string questionText)
     : type(type), time(time), questionText(std::move(questionText)) {}
 
+void SessionInput::setId(int id){
+    this->id = id;
+}
 InputType SessionInput::getType() const {
     return type;
 }

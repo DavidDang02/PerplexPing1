@@ -3,8 +3,16 @@
 Session::Session()
     : id(0), userId(0), startTime(Clock::now()), ended(false) {}
 
-Session::Session(int id, int userId, Clock::time_point startTime)
-    : id(id), userId(userId), startTime(startTime), ended(false) {}
+Session::Session(int userId)
+    : id(0), userId(userId), startTime(Clock::now()), ended(false) {}
+
+Session::Session(int id, int userId)
+    : id(id), userId(userId), startTime(Clock::now()), ended(false) {}
+
+Session::Session(int id, int userId, Clock::time_point startTime, bool ended)
+    : id(id), userId(userId), startTime(startTime), ended(ended) {}
+
+
 
 void Session::endSession() {
     if (ended) {
@@ -49,9 +57,13 @@ int Session::getId() const {
     return id;
 }
 
+void Session::setId(int id){
+   this->id = id;
+}
 int Session::getUserId() const {
     return userId;
 }
+
 
 Session::Clock::time_point Session::getStartTime() const {
     return startTime;

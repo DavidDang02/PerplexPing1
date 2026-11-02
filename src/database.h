@@ -19,6 +19,9 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -55,7 +58,7 @@ public:
     Session createSession(int userId);
 
     // Saves one input of a session. Call after Session::addInput returned true.
-    void saveInput(int sessionId, const SessionInput& input);
+    void saveInput(int sessionId, SessionInput& input);
 
     // Saves the end time. Call after Session::endSession.
     void saveSessionEnd(int sessionId, Session::Clock::time_point endTime);
@@ -70,5 +73,4 @@ public:
 private:
     QString connectionName;
     QSqlDatabase db;
-    //QString path;
 };
