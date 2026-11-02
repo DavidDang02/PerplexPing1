@@ -6,12 +6,16 @@ Students can press a button when they are confused by the lecture, or submit que
 Both students and educators can see a timeline of the recorded session afterwards, seeing where students were confused, and answer questions that they might have had.  
 
 
-## Walking Skeleton
-This is the walking skeleton version of the app. Users can create a session, press a button to indicate confusion, and end the session.  
+## MVP
+This is the MVP version of the app. There is still no connectivity. Sessions are assumed to be 1 User for each Session.  
 
-After ending the session, they can then see timestamps of when they pressed the button.  
+Users begin by registering an account, or logging into an existing account. Either way, they must provide a username and a password. Usernames must be unique.  
 
-There is no connectivity to other users, and sessions are stored in memory, deleted when another session is started(or the app is closed).  
+After logging in, Users can see their own past Sessions, or begin a new Session. When looking at past Sessions, they can see all of their inputs during that Session. Inputs are either a single press of the "I'm Lost" button or a question that they wrote down.  
+
+If the User begins a Session, they can press the "I'm Lost" button when they feel confused during a lecture, or write down a question to record it for later. They can end the Session whenever they like, usually at the end of the lecture that they are in.  
+
+Users can log out. Usernames, passwords, sessions, and the inputs within each session are all stored in a persistent database. For the MVP, there is still no connectivity, and the database will be local to the device. As a result, you can have multiple users sign in with different credentials on the same device, and each of them will only be able to see information from their own past sessions, and not the sessions of others.  
 
 ## Pre-requisites
 - Qt 6 (Widgets, Sql)
@@ -20,7 +24,8 @@ There is no connectivity to other users, and sessions are stored in memory, dele
 ## Setup Instructions
 1. ```git clone https://github.com/SuaceFace/PerplexPing1```
 2. ```cd src```
-3. ```cmake --build build```
+3. ```cmake -B build```
+4. ```cmake --build build```
 
 ## Run
 1. ```./build/app```
