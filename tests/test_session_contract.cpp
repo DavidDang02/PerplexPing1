@@ -51,10 +51,10 @@ TEST_CASE("Session splits press count and question count accurately") {
 
     // Verify ordering and types
     CHECK(session.getInputs()[0].getType() == InputType::Lost);
-    CHECK(session.getInputs()[1].isQuestion());
+    CHECK(session.getInputs()[1].getType() == InputType::Question);
     CHECK(session.getInputs()[1].getQuestionText() == "Question 1");
     CHECK(session.getInputs()[2].getType() == InputType::Lost);
-    CHECK(session.getInputs()[3].isQuestion());
+    CHECK(session.getInputs()[3].getType() == InputType::Question);
     CHECK(session.getInputs()[3].getQuestionText() == "Question 2");
     CHECK(session.getInputs()[4].getType() == InputType::Lost);
 

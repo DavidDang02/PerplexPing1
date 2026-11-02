@@ -16,7 +16,6 @@ public:
     SessionInput(InputType type, Clock::time_point time, std::string questionText = "");
 
     InputType getType() const;
-    bool isQuestion() const;
     Clock::time_point getTime() const;
     const std::string& getQuestionText() const;  // empty for Lost
 

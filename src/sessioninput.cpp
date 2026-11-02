@@ -9,10 +9,6 @@ InputType SessionInput::getType() const {
     return type;
 }
 
-bool SessionInput::isQuestion() const {
-    return type == InputType::Question;
-}
-
 SessionInput::Clock::time_point SessionInput::getTime() const {
     return time;
 }

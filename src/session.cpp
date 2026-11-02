@@ -78,7 +78,7 @@ int Session::getPressCount() const {
 int Session::getQuestionCount() const {
     int count = 0;
     for (const auto& input : inputs) {
-        if (input.isQuestion()) {
+        if (input.getType() == InputType::Question) {
             ++count;
         }
     }

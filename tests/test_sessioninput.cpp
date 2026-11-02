@@ -8,7 +8,6 @@ TEST_CASE("SessionInput properly initializes Lost inputs") {
     SessionInput input(InputType::Lost, now);
 
     CHECK(input.getType() == InputType::Lost);
-    CHECK(input.isQuestion() == false);
     CHECK(input.getTime() == now);
     CHECK(input.getQuestionText().empty());
 }
@@ -19,7 +18,6 @@ TEST_CASE("SessionInput properly initializes Question inputs with question text"
     SessionInput input(InputType::Question, now, text);
 
     CHECK(input.getType() == InputType::Question);
-    CHECK(input.isQuestion() == true);
     CHECK(input.getTime() == now);
     CHECK(input.getQuestionText() == text);
 }
@@ -30,13 +28,12 @@ TEST_CASE("SessionInput preserves epoch and boundary timestamps") {
 
     CHECK(input.getTime() == epoch);
     CHECK(input.getType() == InputType::Lost);
-    CHECK_FALSE(input.isQuestion());
 
     // Distant future timestamp
     const auto futureTime = epoch + std::chrono::hours(24 * 365 * 100); // ~100 years out
     SessionInput futureInput(InputType::Question, futureTime, "Future question?");
     CHECK(futureInput.getTime() == futureTime);
-    CHECK(futureInput.isQuestion());
+    CHECK(futureInput.getType() == InputType::Question);
 }
 
 TEST_CASE("SessionInput preserves multi-line and special character question text") {
@@ -48,6 +45,5 @@ TEST_CASE("SessionInput preserves multi-line and special character question text
     SessionInput input(InputType::Question, now, complexText);
 
     CHECK(input.getType() == InputType::Question);
-    CHECK(input.isQuestion());
     CHECK(input.getQuestionText() == complexText);
 }
