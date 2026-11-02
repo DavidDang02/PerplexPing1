@@ -17,6 +17,20 @@ static QString formatClockTime(Session::Clock::time_point time) {
   return QDateTime::fromMSecsSinceEpoch(ms.count()).toString("MMM d, h:mm AP");
 }
 
+// "50 min", or "<1 min" for a very short session. A session can be missing its
+// end time if the app was killed instead of quit (Qt Creator's Stop, a crash).
+static QString formatDuration(const Session& session) {
+  if (!session.isEnded()) {
+    return "no end time";
+  }
+  const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(
+      session.getEndTime() - session.getStartTime());
+  if (minutes.count() < 1) {
+    return "<1 min";
+  }
+  return QString("%1 min").arg(minutes.count());
+}
+
 // 754 -> "12:34 in"
 static QString formatOffset(long long seconds) {
   return QString("%1:%2 in")
@@ -27,7 +41,7 @@ static QString formatOffset(long long seconds) {
 // "12:34 in · I'm lost" or "12:34 in · Q: what is a foreign key?"
 static QString formatInput(const Session& session, const SessionInput& input) {
   const QString when = formatOffset(session.getOffsetSeconds(input));
-  if (input.isQuestion()) {
+  if (input.getType() == InputType::Question) {
     return when + " · Q: " + QString::fromStdString(input.getQuestionText());
   }
   return when + " · I'm lost";
@@ -134,8 +148,9 @@ void AppController::showMainPage() {
 
   QStringList rows;
   for (const Session& session : pastSessions) {
-    rows.append(QString("%1  ·  Lost: %2  ·  Questions: %3")
+    rows.append(QString("%1  ·  %2  ·  Lost: %3  ·  Questions: %4")
                     .arg(formatClockTime(session.getStartTime()))
+                    .arg(formatDuration(session))
                     .arg(session.getPressCount())
                     .arg(session.getQuestionCount()));
   }
