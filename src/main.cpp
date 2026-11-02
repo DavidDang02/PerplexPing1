@@ -3,44 +3,30 @@
 // two main() functions will fail to link ("duplicate main").
 
 #include <QApplication>
+#include <QMessageBox>
 
+#include "appcontroller.h"
+#include "appmodel.h"
+#include "database.h"
 #include "loginpage.h"
 #include "mainpage.h"
-#include "sessioncontroller.h"
 #include "sessionpage.h"
-
-// Shows `to` in the same spot as `from`, then hides `from`.
-static void switchPage(QWidget* from, QWidget* to) {
-  to->move(from->pos());
-  to->show();
-  from->hide();
-}
 
 int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
 
+  // The database file sits next to the app, so every run sees the same data.
+  Database db(QCoreApplication::applicationDirPath() + "/perplexping.db");
+  if (!db.open()) {
+    QMessageBox::critical(nullptr, "PerplexPing", "Could not open perplexping.db.");
+    return 1;
+  }
+
   LoginPage loginPage;
   MainPage mainPage;
   SessionPage sessionPage;
-  SessionController controller(&mainPage);
-
-  QObject::connect(&mainPage, &MainPage::startClicked, &controller, &SessionController::createSession);
-  QObject::connect(&sessionPage, &SessionPage::lostClicked, &controller, &SessionController::clickLostButton);
-  QObject::connect(&sessionPage, &SessionPage::endClicked, &controller, &SessionController::endSession);
-
-  // Page flow: login -> main -> session, and back.
-  QObject::connect(&loginPage, &LoginPage::loginClicked, [&] { switchPage(&loginPage, &mainPage); });
-  QObject::connect(&mainPage, &MainPage::logoutClicked, [&] {
-    loginPage.clearFields();
-    switchPage(&mainPage, &loginPage);
-  });
-  QObject::connect(&mainPage, &MainPage::startClicked, [&] {
-    sessionPage.clearQuestion();
-    switchPage(&mainPage, &sessionPage);
-  });
-  QObject::connect(&sessionPage, &SessionPage::endClicked, [&] { switchPage(&sessionPage, &mainPage); });
-
-  loginPage.show();
+  AppModel model(&db);
+  AppController controller(&model, &loginPage, &mainPage, &sessionPage);
 
   return app.exec();
 }
