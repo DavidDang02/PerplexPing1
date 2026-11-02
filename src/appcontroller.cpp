@@ -1,5 +1,6 @@
 #include "appcontroller.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QStringList>
 
@@ -63,6 +64,10 @@ AppController::AppController(AppModel* model, LoginPage* loginPage, MainPage* ma
   connect(sessionPage, &SessionPage::lostClicked, this, &AppController::clickLostButton);
   connect(sessionPage, &SessionPage::questionSubmitted, this, &AppController::submitQuestion);
   connect(sessionPage, &SessionPage::endClicked, this, &AppController::endSession);
+
+  // If the app closes while a session is running, end and save it, so it
+  // doesn't stay "in progress" forever.
+  connect(qApp, &QCoreApplication::aboutToQuit, this, [this] { this->model->endSession(); });
 
   goTo(loginPage);
 }
