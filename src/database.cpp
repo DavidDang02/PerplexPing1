@@ -144,187 +144,75 @@ void Database::saveSessionEnd(int sessionId, Session::Clock::time_point endTime)
 
 }
 
+// Every session the user started, newest first, each with its inputs.
 std::vector<Session> Database::listSessionsForUser(int userId){
+	std::vector<Session> sessions;
 
 	QSqlQuery query;
-	std::vector<Session> s;
-	query.prepare("SELECT * FROM Sessions LEFT JOIN Sessioninputs USING(session_id) WHERE host_id = :userId ORDER BY session_id;");
+	query.prepare("SELECT session_id FROM Sessions WHERE host_id = :userId ORDER BY session_id DESC;");
 	query.bindValue(":userId", userId);
 	if(!query.exec()){
-		std::cout << "Database::listSessionForUser query failed: " << query.lastError().text().toStdString() << std::endl;
-		return s;
+		std::cout << "Database::listSessionsForUser query failed: " << query.lastError().text().toStdString() << std::endl;
+		return sessions;
 	}
-	QSqlRecord rec = query.record();
-	int session_id_column = rec.indexOf("session_id");
-	int host_id_column = rec.indexOf("host_id");
-	int user_id_column = rec.indexOf("user_id");
-	int start_time_column = rec.indexOf("start_date");
-	int end_time_column = rec.indexOf("end_date");
-	int input_id_column = rec.indexOf("input_id");
-	int input_time_column = rec.indexOf("input_time");
-	int input_type_column = rec.indexOf("input_type");
-	int input_question_column = rec.indexOf("input_question");
-	
-	int index = -1;
-	int prev_session_id = -1;
-	int session_id;
-	int host_id;
-	std::string start_time;
-	std::string end_time;
-	int user_id;
-	int input_id;
-	std::string input_time;
-	std::string input_type;
-	std::string input_question;
-	bool ok;
-	bool first = true;
-	int temp = 10;
+
+	// Collect the ids first, then load each session with loadSession().
+	std::vector<int> ids;
 	while(query.next()){
-		temp = query.value(session_id_column).toInt(&ok);
-		if(ok){
-			if (!first){
-				prev_session_id = session_id;
-				session_id = temp;
-			} else {
-				session_id = temp;
-			}
-		} else{
-			session_id = -1;
+		ids.push_back(query.value(0).toInt());
+	}
+	for(int id : ids){
+		std::optional<Session> session = loadSession(id);
+		if(session){
+			sessions.push_back(*session);
 		}
-
-		temp = query.value(host_id_column).toInt(&ok);
-		if(ok){
-			host_id = temp;
-		} else {
-			host_id = -1;
-		}
-
-		temp = query.value(user_id_column).toInt(&ok);
-		if(ok){
-			user_id = temp;
-		} else  {
-			user_id = -1;
-		}
-
-
-		temp = query.value(input_id_column).toInt(&ok);
-		if(ok){
-			input_id = temp;
-		} else {
-			input_id = -1;
-		}
-
-		start_time = query.value(start_time_column).toString().toStdString();
-		input_time = query.value(input_time_column).toString().toStdString();
-		input_type = query.value(input_type_column).toString().toStdString();
-		input_question = query.value(input_question_column).toString().toStdString();
-
-		if(prev_session_id == session_id){
-			if(input_time != ""){
-				if(input_type == "Question"){
-					SessionInput i(InputType::Question, convertStringToTime(input_time), input_question);
-					s[index].addInput(i);
-				} else {
-				
-					SessionInput i(InputType::Lost, convertStringToTime(input_time), input_question);
-					s[index].addInput(i);
-				}
-			}
-
-		} else {
-			if(first){
-				s.push_back(Session(session_id, host_id, convertStringToTime(start_time)));
-				index++;
-				first = false;
-			} else {
-				end_time = query.value(end_time_column).toString().toStdString();
-				if(end_time != ""){
-					s[index].endSession(convertStringToTime(end_time));
-				}
-				s.push_back(Session(session_id, host_id, convertStringToTime(start_time)));
-				index++;
-			}
-		}
-	} //end while loop
-	return s;
+	}
+	return sessions;
 } //end function
 
 
 
+// Rebuilds one session and its inputs (in the order they were saved).
+// nullopt if there is no session with this id.
 std::optional<Session> Database::loadSession(int sessionId){
 	QSqlQuery query;
-	query.prepare("SELECT * FROM Sessions LEFT JOIN Sessioninputs USING(session_id) WHERE session_id = :sessionId ORDER BY input_id;");
+	query.prepare("SELECT host_id, start_date, end_date FROM Sessions WHERE session_id = :sessionId;");
 	query.bindValue(":sessionId", sessionId);
-	Session* session = NULL;
 	if(!query.exec()){
 		std::cout << "Database::loadSession query failed: " << query.lastError().text().toStdString() << std::endl;
 		return std::nullopt;
 	}
-	QSqlRecord rec = query.record();
-	int host_id_column = rec.indexOf("host_id");
-	int user_id_column = rec.indexOf("user_id");
-	int start_time_column = rec.indexOf("start_date");
-	int end_time_column = rec.indexOf("end_date");
-	int input_id_column = rec.indexOf("input_id");
-	int input_time_column = rec.indexOf("input_time");
-	int input_type_column = rec.indexOf("input_type");
-	int input_question_column = rec.indexOf("input_question");
-	
-	int host_id;
-	std::string start_time;
-	std::string end_time;
-	int user_id;
-	int input_id;
-	std::string input_time;
-	std::string input_type;
-	std::string input_question;
-	bool ok;
-	bool first = true;
-	int temp = 10;
-	while(query.next()){
-		temp = query.value(host_id_column).toInt(&ok);
-		if(ok){
-			host_id = temp;
-		} else {
-			host_id = -1;
-		}
-
-		temp = query.value(user_id_column).toInt(&ok);
-		if(ok){
-			user_id = temp;
-		} else  {
-			user_id = -1;
-		}
-
-		temp = query.value(input_id_column).toInt(&ok);
-		if(ok){
-			input_id = temp;
-		} else {
-			input_id = -1;
-		}
-
-		start_time = query.value(start_time_column).toString().toStdString();
-		end_time = query.value(end_time_column).toString().toStdString();
-		input_time = query.value(input_time_column).toString().toStdString();
-		input_type = query.value(input_type_column).toString().toStdString();
-		input_question = query.value(input_question_column).toString().toStdString();
-
-		if(first){
-			session = new Session(sessionId, host_id, convertStringToTime(start_time));
-			first = false;
-		}
-		if(input_type == "Question"){
-			SessionInput i(InputType::Question, convertStringToTime(input_time), input_question);
-			session->addInput(i);
-		} else {
-			SessionInput i(InputType::Lost, convertStringToTime(input_time), input_question);
-			session->addInput(i);
-		}
-	} //end while loop
-	if(end_time != ""){
-		session->endSession(convertStringToTime(end_time));
+	if(!query.next()){
+		return std::nullopt;  // no such session
 	}
-	return *session;
+	int host_id = query.value(0).toInt();
+	std::string start_time = query.value(1).toString().toStdString();
+	std::string end_time = query.value(2).toString().toStdString();  // "" while running
+
+	Session session(sessionId, host_id, convertStringToTime(start_time));
+
+	QSqlQuery inputs;
+	inputs.prepare("SELECT input_time, input_type, input_question FROM Sessioninputs WHERE session_id = :sessionId ORDER BY input_id;");
+	inputs.bindValue(":sessionId", sessionId);
+	if(!inputs.exec()){
+		std::cout << "Database::loadSession inputs query failed: " << inputs.lastError().text().toStdString() << std::endl;
+		return std::nullopt;
+	}
+	while(inputs.next()){
+		std::string input_time = inputs.value(0).toString().toStdString();
+		if(inputs.value(1).toString() == "Question"){
+			std::string question = inputs.value(2).toString().toStdString();
+			session.addInput(SessionInput(InputType::Question, convertStringToTime(input_time), question));
+		} else {
+			session.addInput(SessionInput(InputType::Lost, convertStringToTime(input_time)));
+		}
+	}
+
+	// End it last: an ended session refuses new inputs.
+	if(end_time != ""){
+		session.endSession(convertStringToTime(end_time));
+	}
+	return session;
 } //end function
 
 std::string Database::convertTimeToString(std::chrono::system_clock::time_point time){
