@@ -61,9 +61,9 @@ TEST_CASE("Session splits press count and question count accurately") {
     CHECK(session.getLostButtonTimestamps().size() == 3);
 }
 
-/**TEST_CASE("Session measures input offsets from session start time") {
+TEST_CASE("Session measures input offsets from session start time") {
     const auto t0 = Session::Clock::time_point(std::chrono::seconds(10000));
-    Session session(101, 42);
+    Session session(101, 42, t0);
 
     CHECK(session.getId() == 101);
     CHECK(session.getUserId() == 42);
@@ -99,4 +99,4 @@ TEST_CASE("endSession(when) sets and preserves the specific end time") {
 
     session.endSession();
     CHECK(session.getEndTime() == tEnd);
-} **/
+}
