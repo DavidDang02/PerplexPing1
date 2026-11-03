@@ -45,3 +45,7 @@ void MainPage::showSessions(const QStringList& rows) {
     ui->sessionList->addItem(row);
   }
 }
+
+void MainPage::selectSessionRow(int row) {
+  ui->sessionList->setCurrentRow(row);
+}

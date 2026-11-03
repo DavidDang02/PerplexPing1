@@ -157,12 +157,14 @@ void AppController::showMainPage() {
   mainPage->showSessions(rows);
   mainPage->setStatus("Logged in as " + QString::fromStdString(model->getCurrentUser()->getName()));
 
-  // Show the newest session's details, or blanks if there are none.
+  // Highlight the newest session and show its details, or blanks if there
+  // are none.
   if (pastSessions.empty()) {
     mainPage->setStartTime("Started: —");
     mainPage->setEndTime("Ended: —");
     mainPage->showPresses({});
   } else {
+    mainPage->selectSessionRow(0);
     showSessionDetails(pastSessions.front());
   }
   mainPage->setRunning(false);

@@ -26,6 +26,7 @@ class MainPage : public QMainWindow {
   void setRunning(bool running);              // enables/disables Start and Log Out
   void showPresses(const QStringList& rows);  // fills timestampList
   void showSessions(const QStringList& rows); // fills sessionList
+  void selectSessionRow(int row);             // highlights that row in sessionList
 
  signals:
   void startClicked();
