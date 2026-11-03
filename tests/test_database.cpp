@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT
 #include "doctest.h"
 #include "database.h"
+#include <QFile>
 #include "user.h"
 #include <iostream>
 //#include <optional>
@@ -15,6 +16,7 @@ TEST_CASE("Check Database Object Creation") {
 
 TEST_CASE("Check Database User Store & Retrevial") {
 
+	QFile::remove("test.db");  // start fresh, or "Crawford" is already taken on a second run
 	Database db("test.db");
 	db.open();
 	std::optional<User> user = db.registerUser("Crawford", "Crawford2!");

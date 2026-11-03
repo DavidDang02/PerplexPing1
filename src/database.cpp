@@ -51,12 +51,8 @@ std::optional<User> Database::registerUser(const std::string& name, const std::s
 	query.bindValue(":password", QString::fromStdString(password));
 	bool status = query.exec();
 	if(!status){
-		std::string error_code = query.lastError().nativeErrorCode().toStdString();
-		if(error_code == "2067") {
-			return login(name, password);
-		} else {
-			return std::nullopt;
-		}
+		// Fails when the name is already taken (UNIQUE) or the insert errors.
+		return std::nullopt;
 	}
 	return User(query.lastInsertId().toInt(), std::move(name));
 }
