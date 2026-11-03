@@ -25,6 +25,7 @@ public:
 
     Session(int id, int userId, Clock::time_point startTime);
 
+    // A session that has already ended (for example, loaded from the database).
     Session(int id, int userId, Clock::time_point startTime, Clock::time_point endTime);
 
     // Saves the end time (now, or `when` when loading from the database).

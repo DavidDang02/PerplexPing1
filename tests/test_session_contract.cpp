@@ -100,3 +100,15 @@ TEST_CASE("endSession(when) sets and preserves the specific end time") {
     session.endSession();
     CHECK(session.getEndTime() == tEnd);
 }
+
+TEST_CASE("A session built with an end time is already ended") {
+    const auto t0 = Session::Clock::time_point(std::chrono::seconds(5000));
+    const auto tEnd = t0 + std::chrono::seconds(600);
+
+    Session session(7, 3, t0, tEnd);
+
+    CHECK(session.isEnded());
+    CHECK(session.getStartTime() == t0);
+    CHECK(session.getEndTime() == tEnd);
+    CHECK_FALSE(session.lostButtonClicked());  // nothing is recorded after the end
+}

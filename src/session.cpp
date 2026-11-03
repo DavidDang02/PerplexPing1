@@ -13,7 +13,7 @@ Session::Session(int id, int userId, Clock::time_point startTime)
     : id(id), userId(userId), startTime(startTime), ended(false) {}
 
 Session::Session(int id, int userId, Clock::time_point startTime, Clock::time_point endTime)
-    : id(id), userId(userId), startTime(startTime), ended(false) {}
+    : id(id), userId(userId), startTime(startTime), endTime(endTime), ended(true) {}
 
 
 void Session::endSession() {
