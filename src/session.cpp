@@ -9,9 +9,11 @@ Session::Session(int userId)
 Session::Session(int id, int userId)
     : id(id), userId(userId), startTime(Clock::now()), ended(false) {}
 
-Session::Session(int id, int userId, Clock::time_point startTime, bool ended)
-    : id(id), userId(userId), startTime(startTime), ended(ended) {}
+Session::Session(int id, int userId, Clock::time_point startTime)
+    : id(id), userId(userId), startTime(startTime), ended(false) {}
 
+Session::Session(int id, int userId, Clock::time_point startTime, Clock::time_point endTime)
+    : id(id), userId(userId), startTime(startTime), ended(false) {}
 
 
 void Session::endSession() {

@@ -23,7 +23,9 @@ public:
     // A session with a real id, owned by userId.
     Session(int id, int userId);
 
-    Session(int id, int userId, Clock::time_point startTime, bool ended);
+    Session(int id, int userId, Clock::time_point startTime);
+
+    Session(int id, int userId, Clock::time_point startTime, Clock::time_point endTime);
 
     // Saves the end time (now, or `when` when loading from the database).
     // After this, inputs are no longer recorded. Ending twice does nothing.

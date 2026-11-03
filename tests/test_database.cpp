@@ -32,11 +32,8 @@ TEST_CASE("Check Password Mismatch"){
 	
 	Database db("test.db");
 	db.open();
-	//std::optional<User> user = db.registerUser("Crawford", "Crawford2!");
 	std::optional<User> test = db.login("Crawford", "Crawford!");
-	//bool user_status = user.has_value();
 	bool test_status = test.has_value();
-	//CHECK(user_status);
 	CHECK(test_status == false);
 
 }
@@ -45,11 +42,8 @@ TEST_CASE("Check Username not found"){
 
 	Database db("test.db");
 	db.open();
-	//std::optional<User> user = db.registerUser("Crawford", "Crawford2!");
 	std::optional<User> test = db.login("Herbert", "Crawford2!");
-	//bool user_status = user.has_value();
 	bool test_status = test.has_value();
-	//CHECK(user_status);
 	CHECK(test_status == false);
 }
 
@@ -76,26 +70,33 @@ TEST_CASE("Check Save Input"){
 			std::vector<SessionInput> inputs = s.getInputs();
 			db.saveInput(s.getId(), user->getId(), inputs[0]);
 			CHECK(inputs[0].getId() > -1);
-			db.loadSession(s.getId());
 		}
 	}
 
 }
 
-/**TEST_CASE("Check list sessions for user"){
+TEST_CASE("Check loadSession"){
 
 	Database db("test.db");
 	db.open();
 	std::optional<User> user = db.login("Crawford", "Crawford2!");
-	std::vector<Session> s = db.listSessionsForUser(user->getId());
-	CHECK(s.size() > 0);
+	std::optional<Session> session = db.createSession(user->getId());
+	session->lostButtonClicked();
+	session->lostButtonClicked();
+	session->lostButtonClicked();
+	session->lostButtonClicked();
+	session->endSession();
+	db.saveSessionEnd(session->getId(), session->getEndTime());
+	std::vector<SessionInput> inputs = session->getInputs();
+	for(int i = 0; i < inputs.size(); i++){
+		db.saveInput(session->getId(), user->getId(), inputs[i]);
+	}
+
+	std::optional<Session> test_session = db.loadSession(session->getId());
+	std::vector<SessionInput> test_inputs = test_session->getInputs();
+	CHECK(test_inputs.size() == inputs.size());
 
 
-}**/
+}
 
 
-/**TEST_CASE("Check loadsession"){
-
-	
-
-}**/
