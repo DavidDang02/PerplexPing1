@@ -115,7 +115,7 @@ void Database::saveInput(int sessionId, int userId, SessionInput& input){
 	query.bindValue(":inputtime", QString::fromStdString(time));
 	if(input.getType() == InputType::Lost){
 		query.bindValue(":inputtype", "Lost");
-		query.bindValue(":inputquestion", "NULL");
+		query.bindValue(":inputquestion", QVariant());  // a real NULL, not the text "NULL"
 	} else {
 		query.bindValue(":inputtype", "Question");
 		query.bindValue(":inputquestion", QString::fromStdString(input.getQuestionText()));
