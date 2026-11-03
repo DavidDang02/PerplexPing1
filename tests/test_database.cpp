@@ -1,4 +1,3 @@
-#define DOCTEST_CONFIG_IMPLEMENT
 #include "doctest.h"
 #include "database.h"
 #include <QFile>
@@ -90,7 +89,7 @@ TEST_CASE("Check loadSession"){
 	session->endSession();
 	db.saveSessionEnd(session->getId(), session->getEndTime());
 	std::vector<SessionInput> inputs = session->getInputs();
-	for(int i = 0; i < inputs.size(); i++){
+	for(size_t i = 0; i < inputs.size(); i++){
 		db.saveInput(session->getId(), user->getId(), inputs[i]);
 	}
 
