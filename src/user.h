@@ -1,5 +1,5 @@
 // MODEL: one person who can log in. Only an id and a name; the password
-// never leaves Database (it stores a salted hash, not the password).
+// never leaves Database.
 
 #pragma once
 

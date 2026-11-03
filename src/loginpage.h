@@ -1,5 +1,5 @@
 // VIEW: the login window. Collects a username and password and announces the
-// Log In click as a signal. Does not check credentials itself.
+// Log In and Create Account clicks as signals. Does not check credentials itself.
 
 #pragma once
 
@@ -21,8 +21,8 @@ class LoginPage : public QMainWindow {
   QString password() const;
   void clearFields();  // empties both fields and hides the error, e.g. after logging out
 
-  // Shows the red error box with `message`, e.g. "Account not found",
-  // "Password incorrect" or "Username already in use".
+  // Shows the red error box with `message`, e.g. "Wrong username or password."
+  // or "That username is already taken."
   void showError(const QString& message);
   void clearError();  // hides the red error box
 
