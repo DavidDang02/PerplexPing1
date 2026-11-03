@@ -106,7 +106,7 @@ Tables:
 - Sessions (session_id, host_id, start_date, end_date NULL while running)
 - Sessioninputs (input_id, user_id, session_id, input_time, input_type "Lost" or "Question", input_question NULL for Lost)
 
-Times are stored as "YYYY-MM-DD HH:MM:SS" text in local time. Passwords are stored as plain text (a known limitation of this offline prototype).
+Times are stored in UTC as ISO 8601 text, for example "2026-10-31T00:53:00Z", and shown in local time. UTC has no daylight saving, so a time loads back exactly as it was saved. Passwords are stored as plain text (a known limitation of this offline prototype).
 
 
 Tests (tests/)

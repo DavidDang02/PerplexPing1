@@ -10,7 +10,7 @@
 //   Sessioninputs (input_id INTEGER PRIMARY KEY, user_id NOT NULL, session_id NOT NULL,
 //                  input_time NOT NULL, input_type NOT NULL,   -- "Lost" or "Question"
 //                  input_question)                     -- NULL for Lost
-// Times are stored as local-time text, "YYYY-MM-DD HH:MM:SS".
+// Times are stored as UTC ISO 8601 text, e.g. "2026-10-31T00:53:00Z".
 
 #pragma once
 
@@ -63,8 +63,8 @@ public:
     std::vector<Session> listSessionsForUser(int userId);
 
 private:
-    // Converts between a time and the "YYYY-MM-DD HH:MM:SS" local-time text
-    // stored in the tables.
+    // Converts between a time and the UTC text stored in the tables,
+    // e.g. "2026-10-31T00:53:00Z".
     std::string convertTimeToString(std::chrono::system_clock::time_point time);
     std::chrono::system_clock::time_point convertStringToTime(std::string time);
 

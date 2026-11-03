@@ -1,11 +1,9 @@
 #include "database.h"
 
-#include <ctime>
-#include <iomanip>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 
+#include <QDateTime>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QVariant>
@@ -220,27 +218,16 @@ std::optional<Session> Database::loadSession(int sessionId){
 } //end function
 
 std::string Database::convertTimeToString(std::chrono::system_clock::time_point time){
-
-	auto t = std::chrono::system_clock::to_time_t(time);
-	std::ostringstream s;
-	s << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
-	return s.str();
-
+	// Stored as UTC ISO 8601 text, e.g. "2026-10-31T00:53:00Z". UTC has no
+	// daylight saving, so a time always loads back exactly as it was saved.
+	auto secs = std::chrono::duration_cast<std::chrono::seconds>(time.time_since_epoch()).count();
+	return QDateTime::fromSecsSinceEpoch(secs).toUTC().toString(Qt::ISODate).toStdString();
 }
 
 std::chrono::system_clock::time_point Database::convertStringToTime(std::string time){
-
-	std::tm tm = {};
-	std::istringstream ss(time);
-	// Parse string into tm struct
-	ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
-	if (ss.fail()) {
-		std::cout << "String that threw the error is: " << time << std::endl;
-		throw std::runtime_error("Failed to parse date/time string");
+	QDateTime parsed = QDateTime::fromString(QString::fromStdString(time), Qt::ISODate);
+	if (!parsed.isValid()) {
+		throw std::runtime_error("Failed to parse date/time string: " + time);
 	}
-	// Convert to time_t (local time) then to time_point
-	tm.tm_isdst = -1;  // let mktime work out daylight saving time, or times shift by an hour
-	std::time_t t = std::mktime(&tm);
-	 return std::chrono::system_clock::from_time_t(t);
-
+	return std::chrono::system_clock::time_point(std::chrono::seconds(parsed.toSecsSinceEpoch()));
 }

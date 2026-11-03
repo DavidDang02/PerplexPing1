@@ -1,9 +1,9 @@
 #include "doctest.h"
 #include "database.h"
 #include <QFile>
+#include <QSqlQuery>
+#include <QVariant>
 #include "user.h"
-#include <iostream>
-//#include <optional>
 
 TEST_CASE("Check Database Object Creation") {
 
@@ -101,3 +101,31 @@ TEST_CASE("Check loadSession"){
 }
 
 
+
+TEST_CASE("Times are stored in UTC and load back exactly, in and out of daylight saving") {
+	Database db(":memory:");
+	REQUIRE(db.open());
+	std::optional<User> user = db.registerUser("ana", "pw");
+	REQUIRE(user.has_value());
+	Session session = db.createSession(user->getId());
+
+	using namespace std::chrono;
+	system_clock::time_point summer = system_clock::from_time_t(1783189815);  // 2026-07-04 18:30:15 UTC
+	system_clock::time_point winter = system_clock::from_time_t(1796236200);  // 2026-12-02 18:30:00 UTC
+	SessionInput lost(InputType::Lost, summer);
+	SessionInput question(InputType::Question, winter, "what is a foreign key?");
+	db.saveInput(session.getId(), user->getId(), lost);
+	db.saveInput(session.getId(), user->getId(), question);
+	db.saveSessionEnd(session.getId(), winter);
+
+	QSqlQuery raw("SELECT input_time FROM Sessioninputs ORDER BY input_id;");
+	REQUIRE(raw.next());
+	CHECK(raw.value(0).toString() == "2026-07-04T18:30:15Z");
+
+	std::optional<Session> loaded = db.loadSession(session.getId());
+	REQUIRE(loaded.has_value());
+	REQUIRE(loaded->getInputs().size() == 2);
+	CHECK(loaded->getInputs()[0].getTime() == summer);
+	CHECK(loaded->getInputs()[1].getTime() == winter);
+	CHECK(loaded->getEndTime() == winter);
+}
