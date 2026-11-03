@@ -1,0 +1,9 @@
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/app.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/test_build.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/test.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/edit_cache.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/rebuild_cache.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/app_autogen_timestamp_deps.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/app_autogen.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/test_build_autogen_timestamp_deps.dir
+/home/crawfdaking/Desktop/PerplexPing1.git/m2-user-sql/CMakeFiles/test_build_autogen.dir

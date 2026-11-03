@@ -18,8 +18,16 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <iostream>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 
 #include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlRecord>
+#include <QSqlError>
+#include <QDebug>
 #include <QString>
 
 #include "session.h"
@@ -38,7 +46,7 @@ public:
     bool open();
 
     // ---- Users ----
-    // Saves a new user with a salted hash of the password.
+    // Saves a new user with the password.
     // nullopt if the name is empty, the password is empty, or the name is taken.
     std::optional<User> registerUser(const std::string& name, const std::string& password);
 
@@ -51,7 +59,7 @@ public:
     Session createSession(int userId);
 
     // Saves one input of a session. Call after Session::addInput returned true.
-    void saveInput(int sessionId, const SessionInput& input);
+    void saveInput(int sessionId, int userId, SessionInput& input);
 
     // Saves the end time. Call after Session::endSession.
     void saveSessionEnd(int sessionId, Session::Clock::time_point endTime);
@@ -63,6 +71,12 @@ public:
     // Every session the user started, newest first, each with its inputs.
     std::vector<Session> listSessionsForUser(int userId);
 
+
+    std::string convertTimeToString(std::chrono::system_clock::time_point time);
+
+    std::chrono::system_clock::time_point convertStringToTime(std::string time);
+
 private:
     QString connectionName;
+    QSqlDatabase db;
 };

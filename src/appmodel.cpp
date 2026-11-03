@@ -77,7 +77,8 @@ bool AppModel::clickLostButton() {
     if (!currentSession || !currentSession->lostButtonClicked()) {
         return false;
     }
-    db->saveInput(currentSession->getId(), currentSession->getInputs().back());
+    SessionInput input = currentSession->getInputs().back();
+    db->saveInput(currentSession->getId(), currentUser->getId(), input);
     return true;
 }
 
@@ -85,7 +86,8 @@ bool AppModel::askQuestion(const std::string& text) {
     if (!currentSession || !currentSession->askQuestion(text)) {
         return false;
     }
-    db->saveInput(currentSession->getId(), currentSession->getInputs().back());
+    SessionInput input = currentSession->getInputs().back();
+    db->saveInput(currentSession->getId(), currentUser->getId(), input);
     return true;
 }
 
