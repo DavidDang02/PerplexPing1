@@ -95,7 +95,7 @@ Model (storage): Database (src/database.h, .cpp)
 Saves and loads everything in a SQLite file with Qt SQL. Translates between table rows and model objects. The rules live in the model classes, not here.
 
 - open(): opens the file and creates the tables if needed.
-- registerUser(name, password): nullopt if the name is taken. login(name, password): nullopt if there is no match.
+- registerUser(name, password): nullopt if the name or password is empty, or the name is taken. login(name, password): nullopt if there is no match.
 - createSession(userId): inserts a running session and returns it with its new id.
 - saveInput(sessionId, userId, input), saveSessionEnd(sessionId, endTime).
 - loadSession(sessionId): one session with its inputs in order, or nullopt if it doesn't exist.

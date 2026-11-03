@@ -1,5 +1,15 @@
 #include "database.h"
 
+#include <ctime>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+
+#include <QSqlError>
+#include <QSqlQuery>
+#include <QVariant>
+
 Database::Database(const QString& path){
 	this->connectionName = path;
 }
@@ -7,7 +17,7 @@ Database::Database(const QString& path){
 Database::~Database() {
 	this->db.close();
 	this->db = QSqlDatabase();  // destroy the reference first
-	QSqlDatabase::removeDatabase(this->connectionName);
+	QSqlDatabase::removeDatabase(QSqlDatabase::defaultConnection);
 }
 
 bool Database::open() {
@@ -29,7 +39,7 @@ bool Database::open() {
 		return false;
 	}
 
-	status = query.exec("CREATE TABLE IF NOT EXISTS Sessions (session_id INTEGER PRIMARY KEY, host_id INTEGER NOT NULl, start_date VARCHAR(255) NOT NULL, end_date VARCHAR(255));");
+	status = query.exec("CREATE TABLE IF NOT EXISTS Sessions (session_id INTEGER PRIMARY KEY, host_id INTEGER NOT NULL, start_date VARCHAR(255) NOT NULL, end_date VARCHAR(255));");
 	if(!status){
 		std::cout << "Failed to create Sessions table: " << query.lastError().text().toStdString() << std::endl;
 		return false;
@@ -45,6 +55,9 @@ bool Database::open() {
 }
 
 std::optional<User> Database::registerUser(const std::string& name, const std::string& password){
+	if(name.empty() || password.empty()){
+		return std::nullopt;
+	}
 	QSqlQuery query;
 	query.prepare("INSERT INTO Users (user_name, user_password) VALUES (:name, :password);");
 	query.bindValue(":name", QString::fromStdString(name));
@@ -54,11 +67,11 @@ std::optional<User> Database::registerUser(const std::string& name, const std::s
 		// Fails when the name is already taken (UNIQUE) or the insert errors.
 		return std::nullopt;
 	}
-	return User(query.lastInsertId().toInt(), std::move(name));
+	return User(query.lastInsertId().toInt(), name);
 }
 
 std::optional<User> Database::login(const std::string& name, const std::string& password) {
-QSqlQuery query;
+	QSqlQuery query;
 	query.prepare("SELECT user_id, user_name, user_password FROM Users WHERE user_name = :name AND user_password = :password;");
 	query.bindValue(":name", QString::fromStdString(name));
 	query.bindValue(":password", QString::fromStdString(password));
@@ -69,14 +82,9 @@ QSqlQuery query;
 	}
 
 	if(query.next()) {
-		int db_user_id = query.value(0).toInt();
-		std::string db_name = query.value(1).toString().toStdString();
-		std::string db_password = query.value(2).toString().toStdString();
-		return User(db_user_id, std::move(name));
-	} else {
-		std::cout << "Database::login failed: lookup did not match any user in database: " << query.lastError().text().toStdString() << std::endl;
-		return std::nullopt;
+		return User(query.value(0).toInt(), name);
 	}
+	return std::nullopt;  // no such user, or the password is wrong
 }
 
 Session Database::createSession(int userId) {
@@ -231,6 +239,7 @@ std::chrono::system_clock::time_point Database::convertStringToTime(std::string 
 		throw std::runtime_error("Failed to parse date/time string");
 	}
 	// Convert to time_t (local time) then to time_point
+	tm.tm_isdst = -1;  // let mktime work out daylight saving time, or times shift by an hour
 	std::time_t t = std::mktime(&tm);
 	 return std::chrono::system_clock::from_time_t(t);
 

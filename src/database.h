@@ -3,31 +3,21 @@
 // the rules live in the model classes, not here.
 //
 // Tables (created by open() if missing):
-//   User          (userID INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL,
-//                  passwordHash TEXT NOT NULL, salt TEXT NOT NULL)
-//   Session       (sessionID INTEGER PRIMARY KEY, userID INTEGER NOT NULL,
-//                  startTime INTEGER NOT NULL, endTime INTEGER)        -- NULL while running
-//   SessionInputs (inputID INTEGER PRIMARY KEY, sessionID INTEGER NOT NULL,
-//                  timestamp INTEGER NOT NULL, isQuestion INTEGER NOT NULL,  -- 0 or 1
-//                  questionText TEXT)                                  -- NULL for Lost
-// All times are milliseconds since 1970 (INTEGER), which sort and compare
-// easily and convert directly to std::chrono.
+//   Users         (user_id INTEGER PRIMARY KEY, user_name UNIQUE NOT NULL,
+//                  user_password NOT NULL)            -- plain text in this prototype
+//   Sessions      (session_id INTEGER PRIMARY KEY, host_id NOT NULL,
+//                  start_date NOT NULL, end_date)      -- end_date is NULL while running
+//   Sessioninputs (input_id INTEGER PRIMARY KEY, user_id NOT NULL, session_id NOT NULL,
+//                  input_time NOT NULL, input_type NOT NULL,   -- "Lost" or "Question"
+//                  input_question)                     -- NULL for Lost
+// Times are stored as local-time text, "YYYY-MM-DD HH:MM:SS".
 
 #pragma once
 
 #include <optional>
 #include <string>
 #include <vector>
-#include <iostream>
-#include <ctime>
-#include <sstream>
-#include <iomanip>
-
 #include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlRecord>
-#include <QSqlError>
-#include <QDebug>
 #include <QString>
 
 #include "session.h"
@@ -37,7 +27,7 @@
 class Database {
 public:
     // path is a file such as "perplexping.db", or ":memory:" in tests.
-    // Each Database gets its own Qt connection name, so tests can make many.
+    // Uses Qt's default connection, so open only one Database at a time.
     explicit Database(const QString& path);
     ~Database();
 
@@ -46,8 +36,8 @@ public:
     bool open();
 
     // ---- Users ----
-    // Saves a new user with the password.
-    // nullopt if the name is empty, the password is empty, or the name is taken.
+    // Saves a new user. nullopt if the name or password is empty, or the name
+    // is taken.
     std::optional<User> registerUser(const std::string& name, const std::string& password);
 
     // nullopt if there is no such user or the password is wrong.
@@ -58,25 +48,26 @@ public:
     // with its new sessionID.
     Session createSession(int userId);
 
-    // Saves one input of a session. Call after Session::addInput returned true.
+    // Saves one input of a session and sets its id. Call after
+    // Session::addInput returned true.
     void saveInput(int sessionId, int userId, SessionInput& input);
 
     // Saves the end time. Call after Session::endSession.
     void saveSessionEnd(int sessionId, Session::Clock::time_point endTime);
 
-    // Rebuilds a Session (with all its inputs, in time order) from the tables.
+    // Rebuilds a Session (with all its inputs, in the order they were saved).
     // nullopt if there is no such session.
     std::optional<Session> loadSession(int sessionId);
 
     // Every session the user started, newest first, each with its inputs.
     std::vector<Session> listSessionsForUser(int userId);
 
-
+private:
+    // Converts between a time and the "YYYY-MM-DD HH:MM:SS" local-time text
+    // stored in the tables.
     std::string convertTimeToString(std::chrono::system_clock::time_point time);
-
     std::chrono::system_clock::time_point convertStringToTime(std::string time);
 
-private:
     QString connectionName;
     QSqlDatabase db;
 };
