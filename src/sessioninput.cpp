@@ -9,7 +9,7 @@ void SessionInput::setId(int id){
     this->id = id;
 }
 
-int SessionInput::getId(){
+int SessionInput::getId() const {
     return id;
 }
 

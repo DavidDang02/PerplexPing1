@@ -15,14 +15,15 @@ public:
     // questionText is only used when type is Question.
     SessionInput(InputType type, Clock::time_point time, std::string questionText = "");
 
+    // Database id of this input, 0 until it is saved.
     void setId(int id);
-    int getId();
+    int getId() const;
     InputType getType() const;
     Clock::time_point getTime() const;
     const std::string& getQuestionText() const;  // empty for Lost
 
 private:
-    int id;
+    int id = 0;
     InputType type;
     Clock::time_point time;
     std::string questionText;
