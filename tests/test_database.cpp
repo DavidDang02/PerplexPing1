@@ -53,8 +53,9 @@ TEST_CASE("Check Session Creation"){
 	Database db("test.db");
 	db.open();
 	std::optional<User> user = db.login("Crawford", "Crawford2!");
+	REQUIRE(user.has_value());
 	Session s = db.createSession(user->getId());
-	CHECK(s.getId() > -1);
+	CHECK(s.getId() > 0);
 
 }
 
@@ -65,14 +66,12 @@ TEST_CASE("Check Save Input"){
 	Database db("test.db");
 	db.open();
 	std::optional<User> user = db.login("Crawford", "Crawford2!");
-	if(user.has_value()){
-		Session s = db.createSession(user->getId());
-		if(s.lostButtonClicked()){
-			std::vector<SessionInput> inputs = s.getInputs();
-			db.saveInput(s.getId(), user->getId(), inputs[0]);
-			CHECK(inputs[0].getId() > -1);
-		}
-	}
+	REQUIRE(user.has_value());
+	Session s = db.createSession(user->getId());
+	REQUIRE(s.lostButtonClicked());
+	std::vector<SessionInput> inputs = s.getInputs();
+	db.saveInput(s.getId(), user->getId(), inputs[0]);
+	CHECK(inputs[0].getId() > 0);  // the database gave it an id
 
 }
 
@@ -81,6 +80,7 @@ TEST_CASE("Check loadSession"){
 	Database db("test.db");
 	db.open();
 	std::optional<User> user = db.login("Crawford", "Crawford2!");
+	REQUIRE(user.has_value());
 	std::optional<Session> session = db.createSession(user->getId());
 	session->lostButtonClicked();
 	session->lostButtonClicked();
@@ -94,6 +94,7 @@ TEST_CASE("Check loadSession"){
 	}
 
 	std::optional<Session> test_session = db.loadSession(session->getId());
+	REQUIRE(test_session.has_value());
 	std::vector<SessionInput> test_inputs = test_session->getInputs();
 	CHECK(test_inputs.size() == inputs.size());
 
@@ -128,4 +129,29 @@ TEST_CASE("Times are stored in UTC and load back exactly, in and out of daylight
 	CHECK(loaded->getInputs()[0].getTime() == summer);
 	CHECK(loaded->getInputs()[1].getTime() == winter);
 	CHECK(loaded->getEndTime() == winter);
+}
+
+TEST_CASE("loadSession returns nothing for a session id that doesn't exist") {
+	Database db(":memory:");
+	REQUIRE(db.open());
+	CHECK_FALSE(db.loadSession(12345).has_value());
+}
+
+TEST_CASE("A session with no inputs loads with no inputs") {
+	Database db(":memory:");
+	REQUIRE(db.open());
+	std::optional<User> user = db.registerUser("ana", "pw");
+	REQUIRE(user.has_value());
+	Session running = db.createSession(user->getId());
+
+	std::optional<Session> loaded = db.loadSession(running.getId());
+	REQUIRE(loaded.has_value());
+	CHECK(loaded->getInputs().empty());
+	CHECK_FALSE(loaded->isEnded());  // never ended, so no end time yet
+
+	db.saveSessionEnd(running.getId(), running.getStartTime());
+	loaded = db.loadSession(running.getId());
+	REQUIRE(loaded.has_value());
+	CHECK(loaded->getInputs().empty());
+	CHECK(loaded->isEnded());
 }
