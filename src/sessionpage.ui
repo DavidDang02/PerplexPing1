@@ -45,15 +45,19 @@
      </widget>
     </item>
     <item>
-     <widget class="QGroupBox" name="questionBox">
-      <property name="title">
+     <widget class="QLabel" name="questionLabel">
+      <property name="text">
        <string>Question Box</string>
       </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="questionBox">
       <layout class="QVBoxLayout" name="questionLayout">
        <item>
         <widget class="QPlainTextEdit" name="questionEdit">
          <property name="placeholderText">
-          <string>Type a question for the instructor...</string>
+          <string>Type a question to save for later...</string>
          </property>
         </widget>
        </item>

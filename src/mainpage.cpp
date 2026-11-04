@@ -4,6 +4,9 @@
 MainPage::MainPage(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainPage) {
   ui->setupUi(this);
 
+  // Start Session is twice the normal button height on every platform.
+  ui->startButton->setMinimumHeight(2 * ui->startButton->sizeHint().height());
+
   connect(ui->startButton, &QPushButton::clicked, this, &MainPage::startClicked);
   connect(ui->logoutButton, &QPushButton::clicked, this, &MainPage::logoutClicked);
   connect(ui->sessionList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {

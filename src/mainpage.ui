@@ -50,7 +50,7 @@
     <item>
      <widget class="QLabel" name="sessionListLabel">
       <property name="text">
-       <string>Previous sessions</string>
+       <string>Previous sessions:</string>
       </property>
      </widget>
     </item>
@@ -58,10 +58,14 @@
      <widget class="QListWidget" name="sessionList"/>
     </item>
     <item>
-     <widget class="QGroupBox" name="detailsBox">
-      <property name="title">
-       <string>Session details</string>
+     <widget class="QLabel" name="detailsLabel">
+      <property name="text">
+       <string>Session details:</string>
       </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="detailsBox">
       <layout class="QVBoxLayout" name="detailsLayout">
        <item>
         <layout class="QHBoxLayout" name="timeLayout">
