@@ -4,9 +4,14 @@
 MainPage::MainPage(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainPage) {
   ui->setupUi(this);
 
+  // Start Session is twice the normal button height on every platform.
+  ui->startButton->setMinimumHeight(2 * ui->startButton->sizeHint().height());
+
   connect(ui->startButton, &QPushButton::clicked, this, &MainPage::startClicked);
-  connect(ui->lostButton, &QPushButton::clicked, this, &MainPage::lostClicked);
-  connect(ui->endButton, &QPushButton::clicked, this, &MainPage::endClicked);
+  connect(ui->logoutButton, &QPushButton::clicked, this, &MainPage::logoutClicked);
+  connect(ui->sessionList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+    emit sessionSelected(ui->sessionList->row(item));
+  });
 }
 
 MainPage::~MainPage() {
@@ -25,15 +30,21 @@ void MainPage::setEndTime(const QString& text) {
   ui->endLabel->setText(text);
 }
 
-void MainPage::setRunning(bool running) {
-  ui->startButton->setEnabled(!running);
-  ui->lostButton->setEnabled(running);
-  ui->endButton->setEnabled(running);
-}
-
+// When a session is selected, this fills the timestamplist with the input times and details.
 void MainPage::showPresses(const QStringList& rows) {
   ui->timestampList->clear();
   for (const QString& row : rows) {
     ui->timestampList->addItem(row);
   }
+}
+
+void MainPage::showSessions(const QStringList& rows) {
+  ui->sessionList->clear();
+  for (const QString& row : rows) {
+    ui->sessionList->addItem(row);
+  }
+}
+
+void MainPage::selectSessionRow(int row) {
+  ui->sessionList->setCurrentRow(row);
 }

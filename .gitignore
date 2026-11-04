@@ -5,3 +5,10 @@ build/
 CMakeUserPresets.json
 Thumbs.db
 /Testing
+.cache/
+CMakeFiles/
+.qt/
+/Makefile
+/CMakeCache.txt
+/cmake_install.cmake
+/CTestTestfile.cmake

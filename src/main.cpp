@@ -1,23 +1,32 @@
 // Entry point for the app. This file must NEVER be listed in the test_build
-// target in CMakeLists.txt — doctest generates its own main(), and having
-// two main() functions will fail to link ("duplicate main").
+// target in CMakeLists.txt — tests/test_main.cpp has its own main(), and
+// having two main() functions will fail to link ("duplicate main").
 
 #include <QApplication>
+#include <QMessageBox>
 
+#include "appcontroller.h"
+#include "appmodel.h"
+#include "database.h"
+#include "loginpage.h"
 #include "mainpage.h"
-#include "sessioncontroller.h"
+#include "sessionpage.h"
 
 int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
 
-  MainPage view;
-  SessionController controller(&view);
+  // The database file sits next to the app, so every run sees the same data.
+  Database db(QCoreApplication::applicationDirPath() + "/perplexping.db");
+  if (!db.open()) {
+    QMessageBox::critical(nullptr, "PerplexPing", "Could not open perplexping.db.");
+    return 1;
+  }
 
-  QObject::connect(&view, &MainPage::startClicked, &controller, &SessionController::createSession);
-  QObject::connect(&view, &MainPage::lostClicked, &controller, &SessionController::clickLostButton);
-  QObject::connect(&view, &MainPage::endClicked, &controller, &SessionController::endSession);
+  LoginPage loginPage;
+  MainPage mainPage;
+  SessionPage sessionPage;
+  AppModel model(&db);
+  AppController controller(&model, &loginPage, &mainPage, &sessionPage);
 
-  view.show();
-  
   return app.exec();
 }

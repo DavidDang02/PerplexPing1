@@ -30,8 +30,8 @@ target_include_directories(app PRIVATE src)
 
 # The test binary: every test file, plus your source files except main.cpp.
 # In this class we only write tests for model classes, not view or
-# controller files. Copy tests/test_prime.cpp as a starting point for a
-# new test file — no special #define needed at the top.
+# controller files. To add tests, copy any test file in tests/ as a starting
+# point; only tests/test_main.cpp defines main().
 add_executable(test_build ${TEST_SOURCES} ${APP_SOURCES_NO_MAIN})
 target_link_libraries(test_build PRIVATE Qt6::Widgets Qt6::Sql)
 target_include_directories(test_build PRIVATE src tests)

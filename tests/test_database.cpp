@@ -1,0 +1,157 @@
+#include "doctest.h"
+#include "database.h"
+#include <QFile>
+#include <QSqlQuery>
+#include <QVariant>
+#include "user.h"
+
+TEST_CASE("Check Database Object Creation") {
+
+	Database db("test.db");
+	CHECK(db.open() == true);
+
+}
+
+
+TEST_CASE("Check Database User Store & Retrevial") {
+
+	QFile::remove("test.db");  // start fresh, or "Crawford" is already taken on a second run
+	Database db("test.db");
+	db.open();
+	std::optional<User> user = db.registerUser("Crawford", "Crawford2!");
+	std::optional<User> test = db.login("Crawford", "Crawford2!");
+	bool user_status = user.has_value();
+	bool test_status = test.has_value();
+	CHECK(user_status);
+	CHECK(test_status);
+	if(test_status){
+		CHECK(user->getName() == test->getName());
+	}
+}
+
+TEST_CASE("Check Password Mismatch"){
+	
+	Database db("test.db");
+	db.open();
+	std::optional<User> test = db.login("Crawford", "Crawford!");
+	bool test_status = test.has_value();
+	CHECK(test_status == false);
+
+}
+
+TEST_CASE("Check Username not found"){
+
+	Database db("test.db");
+	db.open();
+	std::optional<User> test = db.login("Herbert", "Crawford2!");
+	bool test_status = test.has_value();
+	CHECK(test_status == false);
+}
+
+TEST_CASE("Check Session Creation"){
+
+	Database db("test.db");
+	db.open();
+	std::optional<User> user = db.login("Crawford", "Crawford2!");
+	REQUIRE(user.has_value());
+	Session s = db.createSession(user->getId());
+	CHECK(s.getId() > 0);
+
+}
+
+
+TEST_CASE("Check Save Input"){
+
+	
+	Database db("test.db");
+	db.open();
+	std::optional<User> user = db.login("Crawford", "Crawford2!");
+	REQUIRE(user.has_value());
+	Session s = db.createSession(user->getId());
+	REQUIRE(s.lostButtonClicked());
+	std::vector<SessionInput> inputs = s.getInputs();
+	db.saveInput(s.getId(), user->getId(), inputs[0]);
+	CHECK(inputs[0].getId() > 0);  // the database gave it an id
+
+}
+
+TEST_CASE("Check loadSession"){
+
+	Database db("test.db");
+	db.open();
+	std::optional<User> user = db.login("Crawford", "Crawford2!");
+	REQUIRE(user.has_value());
+	std::optional<Session> session = db.createSession(user->getId());
+	session->lostButtonClicked();
+	session->lostButtonClicked();
+	session->lostButtonClicked();
+	session->lostButtonClicked();
+	session->endSession();
+	db.saveSessionEnd(session->getId(), session->getEndTime());
+	std::vector<SessionInput> inputs = session->getInputs();
+	for(size_t i = 0; i < inputs.size(); i++){
+		db.saveInput(session->getId(), user->getId(), inputs[i]);
+	}
+
+	std::optional<Session> test_session = db.loadSession(session->getId());
+	REQUIRE(test_session.has_value());
+	std::vector<SessionInput> test_inputs = test_session->getInputs();
+	CHECK(test_inputs.size() == inputs.size());
+
+
+}
+
+
+
+TEST_CASE("Times are stored in UTC and load back exactly, in and out of daylight saving") {
+	Database db(":memory:");
+	REQUIRE(db.open());
+	std::optional<User> user = db.registerUser("ana", "pw");
+	REQUIRE(user.has_value());
+	Session session = db.createSession(user->getId());
+
+	using namespace std::chrono;
+	system_clock::time_point summer = system_clock::from_time_t(1783189815);  // 2026-07-04 18:30:15 UTC
+	system_clock::time_point winter = system_clock::from_time_t(1796236200);  // 2026-12-02 18:30:00 UTC
+	SessionInput lost(InputType::Lost, summer);
+	SessionInput question(InputType::Question, winter, "what is a foreign key?");
+	db.saveInput(session.getId(), user->getId(), lost);
+	db.saveInput(session.getId(), user->getId(), question);
+	db.saveSessionEnd(session.getId(), winter);
+
+	QSqlQuery raw("SELECT input_time FROM Sessioninputs ORDER BY input_id;");
+	REQUIRE(raw.next());
+	CHECK(raw.value(0).toString() == "2026-07-04T18:30:15Z");
+
+	std::optional<Session> loaded = db.loadSession(session.getId());
+	REQUIRE(loaded.has_value());
+	REQUIRE(loaded->getInputs().size() == 2);
+	CHECK(loaded->getInputs()[0].getTime() == summer);
+	CHECK(loaded->getInputs()[1].getTime() == winter);
+	CHECK(loaded->getEndTime() == winter);
+}
+
+TEST_CASE("loadSession returns nothing for a session id that doesn't exist") {
+	Database db(":memory:");
+	REQUIRE(db.open());
+	CHECK_FALSE(db.loadSession(12345).has_value());
+}
+
+TEST_CASE("A session with no inputs loads with no inputs") {
+	Database db(":memory:");
+	REQUIRE(db.open());
+	std::optional<User> user = db.registerUser("ana", "pw");
+	REQUIRE(user.has_value());
+	Session running = db.createSession(user->getId());
+
+	std::optional<Session> loaded = db.loadSession(running.getId());
+	REQUIRE(loaded.has_value());
+	CHECK(loaded->getInputs().empty());
+	CHECK_FALSE(loaded->isEnded());  // never ended, so no end time yet
+
+	db.saveSessionEnd(running.getId(), running.getStartTime());
+	loaded = db.loadSession(running.getId());
+	REQUIRE(loaded.has_value());
+	CHECK(loaded->getInputs().empty());
+	CHECK(loaded->isEnded());
+}
