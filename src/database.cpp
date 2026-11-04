@@ -52,6 +52,7 @@ bool Database::open() {
 	return true;
 }
 
+//Saving a new user. Takes username and password, saves it in Users table as a new row. Creates a new User object with the ID and name and returns it.
 std::optional<User> Database::registerUser(const std::string& name, const std::string& password){
 	if(name.empty() || password.empty()){
 		return std::nullopt;
@@ -68,6 +69,7 @@ std::optional<User> Database::registerUser(const std::string& name, const std::s
 	return User(query.lastInsertId().toInt(), name);
 }
 
+//Checks if username is found and password is matching, returns a User object that matches the login if successful.
 std::optional<User> Database::login(const std::string& name, const std::string& password) {
 	QSqlQuery query;
 	query.prepare("SELECT user_id, user_name, user_password FROM Users WHERE user_name = :name AND user_password = :password;");
