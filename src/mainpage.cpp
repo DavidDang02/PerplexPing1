@@ -30,11 +30,7 @@ void MainPage::setEndTime(const QString& text) {
   ui->endLabel->setText(text);
 }
 
-void MainPage::setRunning(bool running) {
-  ui->startButton->setEnabled(!running);
-  ui->logoutButton->setEnabled(!running);
-}
-
+// When a session is selected, this fills the timestamplist with the input times and details.
 void MainPage::showPresses(const QStringList& rows) {
   ui->timestampList->clear();
   for (const QString& row : rows) {

@@ -60,7 +60,7 @@
     <item>
      <widget class="QLabel" name="detailsLabel">
       <property name="text">
-       <string>Session details:</string>
+       <string>This session's details:</string>
       </property>
      </widget>
     </item>

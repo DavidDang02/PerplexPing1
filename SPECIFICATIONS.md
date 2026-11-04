@@ -36,7 +36,6 @@ The window after logging in. Shows the user's previous sessions and the details 
 - showSessions(const QStringList&): fills the Previous sessions list, one row per session.
 - selectSessionRow(int): highlights a row, so the list shows which session the details belong to.
 - setStartTime / setEndTime(const QString&), showPresses(const QStringList&): fill the Session details panel.
-- setRunning(bool): enables or disables Start Session and Log Out.
 - Signals: startClicked(), logoutClicked(), sessionSelected(int row).
 
 

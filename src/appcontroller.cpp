@@ -167,7 +167,6 @@ void AppController::showMainPage() {
     mainPage->selectSessionRow(0);
     showSessionDetails(pastSessions.front());
   }
-  mainPage->setRunning(false);
   goTo(mainPage);
 }
 
