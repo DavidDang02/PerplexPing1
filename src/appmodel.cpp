@@ -64,8 +64,8 @@ const User* AppModel::getCurrentUser() const {
 // Each action: let Session apply its rule first, and only save if it agreed.
 
 bool AppModel::startSession() {
-    if (!currentUser) {
-        return false;
+    if (!currentUser || currentSession) {
+        return false;  // logged out, or a session is already running
     }
     // The database saves a new running session (start = now) and returns it
     // with the id it picked.

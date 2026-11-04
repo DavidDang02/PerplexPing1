@@ -101,3 +101,18 @@ TEST_CASE("AppModel: users only see their own sessions, newest first") {
     REQUIRE(past.size() == 2);
     CHECK(past[0].getId() == newestId);
 }
+
+TEST_CASE("AppModel: a second session can't start while one is running") {
+    Database db(":memory:");
+    REQUIRE(db.open());
+    AppModel model(&db);
+
+    REQUIRE(model.registerUser("ana", "pw") == AuthError::None);
+    REQUIRE(model.startSession());
+    int firstId = model.getCurrentSession()->getId();
+    CHECK_FALSE(model.startSession());
+    CHECK(model.getCurrentSession()->getId() == firstId);  // still the first one
+
+    model.endSession();
+    CHECK(model.startSession());  // fine once the first one has ended
+}

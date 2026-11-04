@@ -66,7 +66,8 @@ Remembers who is logged in and which session is running, applies the rules, and 
 
 - registerUser(name, password), logIn(name, password): return AuthError::None, EmptyName, EmptyPassword, NameTaken or WrongLogin. The name is trimmed first. Login never says whether the name or the password was wrong.
 - logOut(), isLoggedIn(), getCurrentUser().
-- startSession(), clickLostButton(), askQuestion(text), endSession(): change the running Session and save the change. Each returns false if it can't happen (logged out, no running session, already ended, empty question).
+- startSession(), clickLostButton(), askQuestion(text): change the running Session and save the change. Each returns false if it can't happen (logged out, a session is already running, no running session, empty question).
+- endSession(): ends and saves the running session. Does nothing if there is none.
 - getPastSessions(): the logged-in user's sessions, newest first.
 
 

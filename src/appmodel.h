@@ -33,7 +33,8 @@ public:
     const User* getCurrentUser() const;  // nullptr when logged out
 
     // ---- The running session ----
-    // Starts and saves a new session for the logged-in user. False if logged out.
+    // Starts and saves a new session for the logged-in user. False if logged
+    // out or a session is already running.
     bool startSession();
 
     // Record and save one input. False if there is no running session, it has
