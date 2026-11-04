@@ -1,0 +1,55 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="SllYvh42TCO5Fs3jzdoC">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="6OR0euQ9uvcL1S3wBbq2-1" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;" value="Class: User&lt;div&gt;Methods:&lt;/div&gt;&lt;div&gt;getters&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Info: id, name&lt;/div&gt;" vertex="1">
+          <mxGeometry height="140" width="140" x="170" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="6OR0euQ9uvcL1S3wBbq2-2" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;" value="Class: Session&lt;div&gt;Methods:&lt;/div&gt;&lt;div&gt;endSession(), addInput(), lostButtonClicked(), askQuestion(), getters&lt;/div&gt;&lt;div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Info: List of SessionInputs, startTime, endTime, userID(session host), sessionID&lt;/div&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="210" width="210" x="470" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Class: SessionInput&lt;div&gt;Methods:&lt;/div&gt;&lt;div&gt;Constructor(sets input type, input time, and question text if any), getters&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Into: inputID, inputType, inputTime, questionText&lt;/div&gt;" vertex="1">
+          <mxGeometry height="210" width="160" x="495" y="445" as="geometry" />
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-6" edge="1" parent="1" source="pnZkLKOZ21P4Y8IuJuuQ-3" style="endArrow=diamondThin;endFill=1;endSize=24;html=1;rounded=0;defaultLabelBackgroundColor=page;entryX=0.5;entryY=1;entryDx=0;entryDy=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" target="6OR0euQ9uvcL1S3wBbq2-2" value="">
+          <mxGeometry relative="1" width="160" as="geometry">
+            <mxPoint x="740" y="390" as="sourcePoint" />
+            <mxPoint x="740.5" y="465" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-7" parent="1" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;" value="Class: AppModel&lt;div&gt;Methods:&lt;/div&gt;&lt;div&gt;registerUser(), logIn(), logOut(), startSession(), clickLostButton(), askQuestion(), endSession(), getCurrentSession(), hasRunningSession(), getPastSessions()&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Info: database*, currentUser, currentSession&lt;/div&gt;" vertex="1">
+          <mxGeometry height="260" width="210" x="135" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-8" edge="1" parent="1" source="6OR0euQ9uvcL1S3wBbq2-1" style="endArrow=open;endFill=1;endSize=12;html=1;rounded=0;defaultLabelBackgroundColor=page;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="pnZkLKOZ21P4Y8IuJuuQ-7" value="">
+          <mxGeometry relative="1" width="160" as="geometry">
+            <mxPoint x="230" y="330" as="sourcePoint" />
+            <mxPoint x="390" y="330" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-11" edge="1" parent="1" source="6OR0euQ9uvcL1S3wBbq2-2" style="endArrow=open;endFill=1;endSize=12;html=1;rounded=0;defaultLabelBackgroundColor=page;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="pnZkLKOZ21P4Y8IuJuuQ-7" value="">
+          <mxGeometry relative="1" width="160" as="geometry">
+            <mxPoint x="310" y="265" as="sourcePoint" />
+            <mxPoint x="310" y="265" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-12" edge="1" parent="1" source="pnZkLKOZ21P4Y8IuJuuQ-3" style="endArrow=open;endFill=1;endSize=12;html=1;rounded=0;defaultLabelBackgroundColor=page;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="pnZkLKOZ21P4Y8IuJuuQ-7" value="">
+          <mxGeometry relative="1" width="160" as="geometry">
+            <mxPoint x="335" y="550" as="sourcePoint" />
+            <mxPoint x="335" y="550" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-13" parent="1" style="shape=ext;double=1;rounded=0;whiteSpace=wrap;html=1;" value="Class: Database&lt;div&gt;Methods:&lt;/div&gt;&lt;div&gt;createDatabase(), registerUser(), login(), createSession(), saveInput(), saveSessionEnd(), loadSession(), listSessionsForUser()&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;Info: pathName, sqlDatabase&lt;/div&gt;" vertex="1">
+          <mxGeometry height="260" width="210" x="130" y="760" as="geometry" />
+        </mxCell>
+        <mxCell id="pnZkLKOZ21P4Y8IuJuuQ-14" edge="1" parent="1" source="pnZkLKOZ21P4Y8IuJuuQ-13" style="endArrow=open;endFill=1;endSize=12;html=1;rounded=0;defaultLabelBackgroundColor=page;" target="pnZkLKOZ21P4Y8IuJuuQ-7" value="">
+          <mxGeometry relative="1" width="160" as="geometry">
+            <mxPoint x="235" y="600" as="sourcePoint" />
+            <mxPoint x="235" y="600" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
