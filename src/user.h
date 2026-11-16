@@ -7,12 +7,13 @@
 
 class User {
 public:
+    User();  // id 0, empty name: "nobody"
     User(int id, std::string name);
 
     int getId() const;
     const std::string& getName() const;
 
 private:
-    int id;
+    int id = 0;
     std::string name;
 };

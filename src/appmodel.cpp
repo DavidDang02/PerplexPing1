@@ -17,34 +17,51 @@ static std::string trim(const std::string& text) {
     return text.substr(first, last - first + 1);
 }
 
-// The checks both actions share, before asking the database.
-static AuthError checkFields(const std::string& name, const std::string& password) {
+Result<User> AppModel::registerUser(const std::string& rawName, const std::string& password) {
+    const std::string name = trim(rawName);
     if (name.empty()) {
-        return AuthError::EmptyName;
+        return Error::EmptyName;
+    }
+    if (name.size() > kMaxUsernameLength) {
+        return Error::NameTooLong;
     }
     if (password.empty()) {
-        return AuthError::EmptyPassword;
+        return Error::EmptyPassword;
     }
-    return AuthError::None;
-}
-
-AuthError AppModel::registerUser(const std::string& rawName, const std::string& password) {
-    const std::string name = trim(rawName);
-    if (AuthError error = checkFields(name, password); error != AuthError::None) {
-        return error;
+    if (password.size() > kMaxPasswordLength) {
+        return Error::PasswordTooLong;
+    }
+    if (!db) {
+        return Error::StorageError;
     }
     // The fields are valid, so the database only refuses a name that is taken.
-    currentUser = db->registerUser(name, password);
-    return currentUser ? AuthError::None : AuthError::NameTaken;
+    std::optional<User> created = db->registerUser(name, password);
+    if (!created) {
+        return Error::NameTaken;
+    }
+    currentUser = *created;
+    currentSession.reset();
+    return *currentUser;
 }
 
-AuthError AppModel::logIn(const std::string& rawName, const std::string& password) {
+Result<User> AppModel::logIn(const std::string& rawName, const std::string& password) {
     const std::string name = trim(rawName);
-    if (AuthError error = checkFields(name, password); error != AuthError::None) {
-        return error;
+    if (name.empty()) {
+        return Error::EmptyName;
     }
-    currentUser = db->login(name, password);
-    return currentUser ? AuthError::None : AuthError::WrongLogin;
+    if (password.empty()) {
+        return Error::EmptyPassword;
+    }
+    if (!db) {
+        return Error::StorageError;
+    }
+    std::optional<User> found = db->login(name, password);
+    if (!found) {
+        return Error::WrongLogin;
+    }
+    currentUser = *found;
+    currentSession.reset();
+    return *currentUser;
 }
 
 void AppModel::logOut() {
@@ -61,43 +78,86 @@ const User* AppModel::getCurrentUser() const {
 }
 
 // ---- The running session ----
-// Each action: let Session apply its rule first, and only save if it agreed.
+// Each action: verify login/session/input rules first, then save.
 
-bool AppModel::startSession() {
-    if (!currentUser || currentSession) {
-        return false;  // logged out, or a session is already running
+Result<Session> AppModel::startSession() {
+    if (!currentUser) {
+        return Error::NotLoggedIn;
+    }
+    if (currentSession) {
+        return Error::CourseHasLiveSession;
+    }
+    if (!db) {
+        return Error::StorageError;
     }
     // The database saves a new running session (start = now) and returns it
     // with the id it picked.
-    currentSession = db->createSession(currentUser->getId());
-    return true;
-}
-
-bool AppModel::clickLostButton() {
-    if (!currentSession || !currentSession->lostButtonClicked()) {
-        return false;
+    Session created = db->createSession(currentUser->getId());
+    if (created.getId() <= 0) {
+        return Error::StorageError;
     }
-    SessionInput input = currentSession->getInputs().back();
-    db->saveInput(currentSession->getId(), currentUser->getId(), input);
-    return true;
+    currentSession = created;
+    return *currentSession;
 }
 
-bool AppModel::askQuestion(const std::string& text) {
-    if (!currentSession || !currentSession->askQuestion(text)) {
-        return false;
+Result<SessionInput> AppModel::clickLostButton() {
+    if (!currentUser) {
+        return Error::NotLoggedIn;
     }
-    SessionInput input = currentSession->getInputs().back();
-    db->saveInput(currentSession->getId(), currentUser->getId(), input);
-    return true;
-}
-
-void AppModel::endSession() {
     if (!currentSession) {
-        return;
+        return Error::NoSuchSession;
+    }
+    if (currentSession->isEnded() || !currentSession->lostButtonClicked()) {
+        return Error::SessionEnded;
+    }
+    if (!db) {
+        return Error::StorageError;
+    }
+    SessionInput input = currentSession->getInputs().back();
+    db->saveInput(currentSession->getId(), currentUser->getId(), input);
+    return input;
+}
+
+Result<SessionInput> AppModel::askQuestion(const std::string& rawText) {
+    if (!currentUser) {
+        return Error::NotLoggedIn;
+    }
+    if (!currentSession) {
+        return Error::NoSuchSession;
+    }
+    if (currentSession->isEnded()) {
+        return Error::SessionEnded;
+    }
+    const std::string text = trim(rawText);
+    if (text.empty()) {
+        return Error::EmptyQuestion;
+    }
+    if (!currentSession->askQuestion(text)) {
+        return Error::SessionEnded;
+    }
+    if (!db) {
+        return Error::StorageError;
+    }
+    SessionInput input = currentSession->getInputs().back();
+    db->saveInput(currentSession->getId(), currentUser->getId(), input);
+    return input;
+}
+
+Result<Session> AppModel::endSession() {
+    if (!currentUser) {
+        return Error::NotLoggedIn;
+    }
+    if (!currentSession) {
+        return Error::NoSuchSession;
+    }
+    if (!db) {
+        return Error::StorageError;
     }
     currentSession->endSession();
     db->saveSessionEnd(currentSession->getId(), currentSession->getEndTime());
+    Session ended = *currentSession;
     currentSession.reset();
+    return ended;
 }
 
 bool AppModel::hasRunningSession() const {
@@ -110,9 +170,12 @@ const Session* AppModel::getCurrentSession() const {
 
 // ---- History ----
 
-std::vector<Session> AppModel::getPastSessions() const {
+Result<std::vector<Session>> AppModel::getPastSessions() const {
     if (!currentUser) {
-        return {};
+        return Error::NotLoggedIn;
+    }
+    if (!db) {
+        return Error::StorageError;
     }
     return db->listSessionsForUser(currentUser->getId());
 }
