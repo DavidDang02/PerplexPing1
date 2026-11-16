@@ -123,7 +123,13 @@ void AppController::clickLostButton() {
 }
 
 void AppController::submitQuestion(const QString& text) {
-  model->askQuestion(text.toStdString());
+  const Result<SessionInput> result = model->askQuestion(text.toStdString());
+  if (result.isOk()) {
+    sessionPage->clearQuestion();
+    sessionPage->showQuestionSent();
+  } else {
+    sessionPage->showQuestionError(result.error);  // e.g. empty: tell the user instead of doing nothing
+  }
   refreshSessionPage();
 }
 

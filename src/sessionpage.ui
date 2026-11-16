@@ -47,7 +47,7 @@
     <item>
      <widget class="QLabel" name="questionLabel">
       <property name="text">
-       <string>Question Box</string>
+       <string>Ask a question (saved with the time you sent it)</string>
       </property>
      </widget>
     </item>
@@ -57,7 +57,20 @@
        <item>
         <widget class="QPlainTextEdit" name="questionEdit">
          <property name="placeholderText">
-          <string>Type a question to save for later...</string>
+          <string>Type your question here, then press Send Question.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="questionErrorLabel">
+         <property name="visible">
+          <bool>false</bool>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">color: #b00020; background-color: #fde7e9; border: 1px solid #b00020; border-radius: 4px; padding: 6px;</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
          </property>
         </widget>
        </item>
@@ -73,7 +86,7 @@
          <item>
           <widget class="QPushButton" name="submitButton">
            <property name="text">
-            <string>Submit</string>
+            <string>Send Question</string>
            </property>
           </widget>
          </item>
