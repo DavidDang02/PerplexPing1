@@ -12,6 +12,7 @@ class SessionInput {
 public:
     using Clock = std::chrono::system_clock;
 
+    SessionInput();
     // questionText is only used when type is Question.
     SessionInput(InputType type, Clock::time_point time, std::string questionText = "");
 
@@ -24,7 +25,7 @@ public:
 
 private:
     int id = 0;
-    InputType type;
-    Clock::time_point time;
+    InputType type = InputType::Lost;
+    Clock::time_point time{};
     std::string questionText;
 };

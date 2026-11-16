@@ -37,10 +37,11 @@ public:
 
     // ---- Users ----
     // Saves a new user. nullopt if the name or password is empty, or the name
-    // is taken.
+    // is taken ignoring case ("Ana" and "ana" are the same name).
     std::optional<User> registerUser(const std::string& name, const std::string& password);
 
-    // nullopt if there is no such user or the password is wrong.
+    // nullopt if there is no such user or the password is wrong. The name
+    // ignores case; the returned User has the name as it was registered.
     std::optional<User> login(const std::string& name, const std::string& password);
 
     // ---- Sessions ----

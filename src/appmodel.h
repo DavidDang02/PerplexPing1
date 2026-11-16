@@ -4,53 +4,55 @@
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "error.h"
 #include "session.h"
+#include "sessioninput.h"
 #include "user.h"
 
 class Database;
-
-// Why logging in or registering failed. None means it worked.
-// Login doesn't say whether the name or the password was wrong, so the app
-// never reveals which usernames exist.
-enum class AuthError { None, EmptyName, EmptyPassword, NameTaken, WrongLogin };
 
 class AppModel {
 public:
     explicit AppModel(Database* db);  // not owned
 
     // ---- Accounts ----
-    // Both log the user in on success and return AuthError::None.
-    // The name is trimmed first, so " ana " and "ana" are the same user.
-    AuthError registerUser(const std::string& name, const std::string& password);
-    AuthError logIn(const std::string& name, const std::string& password);
+    // Both log the user in on success and return Result<User>.
+    // The name is trimmed first, so " ana " and "ana" are the same user, and
+    // it ignores case ("ANA" logs in as "ana"). Registering checks the limits
+    // in Validation (username 3-20 letters/digits/._-, password 8-64).
+    // Logging in only says EmptyName / EmptyPassword / WrongLogin, so it
+    // never reveals which usernames exist, and old accounts still work.
+    Result<User> registerUser(const std::string& name, const std::string& password);
+    Result<User> logIn(const std::string& name, const std::string& password);
     void logOut();  // also forgets any running session
 
     bool isLoggedIn() const;
     const User* getCurrentUser() const;  // nullptr when logged out
 
     // ---- The running session ----
-    // Starts and saves a new session for the logged-in user. False if logged
-    // out or a session is already running.
-    bool startSession();
+    // Starts and saves a new session for the logged-in user.
+    Result<Session> startSession();
 
-    // Record and save one input. False if there is no running session, it has
-    // ended, or (for questions) the text is empty.
-    bool clickLostButton();
-    bool askQuestion(const std::string& text);
+    // Record and save one input.
+    Result<SessionInput> clickLostButton();
+    // Trims the text, then Validation::checkQuestion: EmptyQuestion or
+    // QuestionTooLong (over 500 characters).
+    Result<SessionInput> askQuestion(const std::string& text);
 
-    // Ends and saves the running session. Does nothing if there is none.
-    void endSession();
+    // Ends and saves the running session.
+    Result<Session> endSession();
 
     bool hasRunningSession() const;
     const Session* getCurrentSession() const;  // nullptr when none
 
     // ---- History ----
-    // Every session the logged-in user started, newest first. Empty if logged out.
-    std::vector<Session> getPastSessions() const;
+    // Every session the logged-in user started, newest first.
+    Result<std::vector<Session>> getPastSessions() const;
 
 private:
     Database* db;
