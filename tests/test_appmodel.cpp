@@ -41,7 +41,7 @@ TEST_CASE("AppModel: register logs in, and login only works with the right passw
     REQUIRE(db.open());
     AppModel model(&db);
 
-    const auto regRes = model.registerUser("ana", "pw");
+    const auto regRes = model.registerUser("ana", "password1");
     REQUIRE(regRes.isOk());
     CHECK(regRes.error == Error::None);
     CHECK(regRes.value.getId() > 0);
@@ -52,12 +52,12 @@ TEST_CASE("AppModel: register logs in, and login only works with the right passw
     model.logOut();
     CHECK_FALSE(model.isLoggedIn());
 
-    const auto badLogin = model.logIn("ana", "wrong");
+    const auto badLogin = model.logIn("ana", "wrongpass1");
     CHECK_FALSE(badLogin.isOk());
     CHECK(badLogin.error == Error::WrongLogin);
     CHECK_FALSE(model.isLoggedIn());
 
-    const auto goodLogin = model.logIn("ana", "pw");
+    const auto goodLogin = model.logIn("ana", "password1");
     REQUIRE(goodLogin.isOk());
     CHECK(goodLogin.error == Error::None);
     CHECK(goodLogin.value.getName() == "ana");
@@ -68,72 +68,87 @@ TEST_CASE("AppModel: login and register say why they failed") {
     REQUIRE(db.open());
     AppModel model(&db);
 
-    CHECK(model.registerUser("", "pw").error == Error::EmptyName);
-    CHECK(model.registerUser("   ", "pw").error == Error::EmptyName);  // only spaces
+    CHECK(model.registerUser("", "password1").error == Error::EmptyName);
+    CHECK(model.registerUser("   ", "password1").error == Error::EmptyName);  // only spaces
     CHECK(model.registerUser("ana", "").error == Error::EmptyPassword);
-    CHECK(model.logIn("", "pw").error == Error::EmptyName);
+    CHECK(model.logIn("", "password1").error == Error::EmptyName);
     CHECK(model.logIn("ana", "").error == Error::EmptyPassword);
-    CHECK(model.logIn("nobody", "pw").error == Error::WrongLogin);  // same as a wrong password
+    CHECK(model.logIn("nobody", "password1").error == Error::WrongLogin);  // same as a wrong password
     CHECK_FALSE(model.isLoggedIn());
 
-    const auto trimmedReg = model.registerUser("  ana ", "pw");  // name is trimmed
+    const auto trimmedReg = model.registerUser("  ana ", "password1");  // name is trimmed
     REQUIRE(trimmedReg.isOk());
     CHECK(trimmedReg.value.getName() == "ana");
     CHECK(model.getCurrentUser()->getName() == "ana");
 
     model.logOut();
-    const auto dupReg = model.registerUser("ana", "other");
+    const auto dupReg = model.registerUser("ana", "otherpass1");
     CHECK_FALSE(dupReg.isOk());
     CHECK(dupReg.error == Error::NameTaken);
 
-    const auto trimmedLogin = model.logIn(" ana", "pw");
+    const auto trimmedLogin = model.logIn(" ana", "password1");
     CHECK(trimmedLogin.isOk());
     CHECK(trimmedLogin.value.getName() == "ana");
 }
 
-TEST_CASE("AppModel: username and password 64-character length limits") {
+TEST_CASE("AppModel: new accounts follow the contract's username and password limits") {
     Database db(":memory:");
     REQUIRE(db.open());
     AppModel model(&db);
 
-    // Edge case: exactly 64 characters is allowed for username and password
-    const std::string name64(64, 'u');
-    const std::string pass64(64, 'p');
-    const auto exactOk = model.registerUser(name64, pass64);
-    REQUIRE(exactOk.isOk());
-    CHECK(exactOk.value.getName() == name64);
+    // Edges that are allowed: 3 and 20 character names, 8 and 64 character passwords
+    REQUIRE(model.registerUser("abc", std::string(8, 'p')).isOk());
+    model.logOut();
+    const auto longest = model.registerUser(std::string(20, 'u'), std::string(64, 'p'));
+    REQUIRE(longest.isOk());
+    CHECK(longest.value.getName().size() == 20);
     model.logOut();
 
-    // Edge case: surrounding spaces are trimmed before checking username length
-    const std::string paddedName64 = "  " + std::string(64, 'v') + "\t\n";
-    const auto paddedOk = model.registerUser(paddedName64, "pw");
-    REQUIRE(paddedOk.isOk());
-    CHECK(paddedOk.value.getName().size() == 64);
+    // Spaces around the name are trimmed before checking its length
+    const auto padded = model.registerUser("  " + std::string(20, 'v') + "\t\n", "password1");
+    REQUIRE(padded.isOk());
+    CHECK(padded.value.getName() == std::string(20, 'v'));
     model.logOut();
 
-    // Failure case: 65-character username returns NameTooLong
-    const std::string name65(65, 'a');
-    const auto longNameRes = model.registerUser(name65, "pw");
-    CHECK_FALSE(longNameRes.isOk());
-    CHECK(longNameRes.error == Error::NameTooLong);
+    // One past each edge fails, and nothing is logged in
+    CHECK(model.registerUser("ab", "password1").error == Error::NameTooShort);
+    CHECK(model.registerUser(std::string(21, 'a'), "password1").error == Error::NameTooLong);
+    CHECK(model.registerUser("ana smith", "password1").error == Error::NameBadCharacters);
+    CHECK(model.registerUser("bob", "1234567").error == Error::PasswordTooShort);
+    CHECK(model.registerUser("bob", std::string(65, 'b')).error == Error::PasswordTooLong);
+    // Passwords are not trimmed: these spaces count
+    CHECK(model.registerUser("bob", " " + std::string(63, 'b') + " ").error == Error::PasswordTooLong);
     CHECK_FALSE(model.isLoggedIn());
 
-    // Failure case: 65-character password returns PasswordTooLong (passwords are not trimmed)
-    const std::string pass65(65, 'b');
-    const auto longPassRes = model.registerUser("bob", pass65);
-    CHECK_FALSE(longPassRes.isOk());
-    CHECK(longPassRes.error == Error::PasswordTooLong);
-    CHECK_FALSE(model.isLoggedIn());
+    // Order of checks: username before password
+    CHECK(model.registerUser(std::string(21, 'a'), "x").error == Error::NameTooLong);
+}
 
-    const std::string passWithSpaces65 = " " + std::string(63, 'b') + " ";
-    const auto spacePassRes = model.registerUser("bob", passWithSpaces65);
-    CHECK_FALSE(spacePassRes.isOk());
-    CHECK(spacePassRes.error == Error::PasswordTooLong);
+TEST_CASE("AppModel: usernames ignore case, passwords don't") {
+    Database db(":memory:");
+    REQUIRE(db.open());
+    AppModel model(&db);
 
-    // Order of checks: username checked before password
-    const auto bothLong = model.registerUser(name65, pass65);
-    CHECK_FALSE(bothLong.isOk());
-    CHECK(bothLong.error == Error::NameTooLong);
+    REQUIRE(model.registerUser("Ana", "password1").isOk());
+    model.logOut();
+    CHECK(model.registerUser("ana", "password2").error == Error::NameTaken);  // same name
+    const auto upper = model.logIn("ANA", "password1");
+    REQUIRE(upper.isOk());
+    CHECK(upper.value.getName() == "Ana");  // shown as registered
+    model.logOut();
+    CHECK(model.logIn("ana", "PASSWORD1").error == Error::WrongLogin);
+}
+
+TEST_CASE("AppModel: questions over 500 characters return QuestionTooLong") {
+    Database db(":memory:");
+    REQUIRE(db.open());
+    AppModel model(&db);
+    REQUIRE(model.registerUser("ana", "password1").isOk());
+    REQUIRE(model.startSession().isOk());
+
+    CHECK(model.askQuestion(std::string(501, 'q')).error == Error::QuestionTooLong);
+    CHECK(model.getCurrentSession()->getQuestionCount() == 0);  // nothing saved
+    CHECK(model.askQuestion(std::string(500, 'q')).isOk());     // exactly the limit
 }
 
 TEST_CASE("AppModel: empty and whitespace questions return EmptyQuestion") {
@@ -141,7 +156,7 @@ TEST_CASE("AppModel: empty and whitespace questions return EmptyQuestion") {
     REQUIRE(db.open());
     AppModel model(&db);
 
-    REQUIRE(model.registerUser("ana", "pw").isOk());
+    REQUIRE(model.registerUser("ana", "password1").isOk());
     REQUIRE(model.startSession().isOk());
 
     const auto emptyRes = model.askQuestion("");
@@ -165,7 +180,7 @@ TEST_CASE("AppModel: a session's inputs are saved and come back after logging in
     Database db(":memory:");
     REQUIRE(db.open());
     AppModel model(&db);
-    REQUIRE(model.registerUser("ana", "pw").isOk());
+    REQUIRE(model.registerUser("ana", "password1").isOk());
 
     // Cannot submit inputs or end before a session starts
     CHECK(model.clickLostButton().error == Error::NoSuchSession);
@@ -202,7 +217,7 @@ TEST_CASE("AppModel: a session's inputs are saved and come back after logging in
     CHECK(postEndLost.error == Error::NoSuchSession);
 
     model.logOut();
-    REQUIRE(model.logIn("ana", "pw").isOk());
+    REQUIRE(model.logIn("ana", "password1").isOk());
     const auto pastRes = model.getPastSessions();
     REQUIRE(pastRes.isOk());
     const std::vector<Session>& past = pastRes.value;
@@ -218,7 +233,7 @@ TEST_CASE("AppModel: users only see their own sessions, newest first") {
     REQUIRE(db.open());
     AppModel model(&db);
 
-    REQUIRE(model.registerUser("ana", "pw").isOk());
+    REQUIRE(model.registerUser("ana", "password1").isOk());
     REQUIRE(model.startSession().isOk());
     REQUIRE(model.endSession().isOk());
 
@@ -228,13 +243,13 @@ TEST_CASE("AppModel: users only see their own sessions, newest first") {
     REQUIRE(model.endSession().isOk());
     model.logOut();
 
-    REQUIRE(model.registerUser("ben", "pw").isOk());
+    REQUIRE(model.registerUser("ben", "password1").isOk());
     const auto benPast = model.getPastSessions();
     REQUIRE(benPast.isOk());
     CHECK(benPast.value.empty());
     model.logOut();
 
-    REQUIRE(model.logIn("ana", "pw").isOk());
+    REQUIRE(model.logIn("ana", "password1").isOk());
     const auto anaPast = model.getPastSessions();
     REQUIRE(anaPast.isOk());
     REQUIRE(anaPast.value.size() == 2);
@@ -246,7 +261,7 @@ TEST_CASE("AppModel: a second session can't start while one is running") {
     REQUIRE(db.open());
     AppModel model(&db);
 
-    REQUIRE(model.registerUser("ana", "pw").isOk());
+    REQUIRE(model.registerUser("ana", "password1").isOk());
     const auto first = model.startSession();
     REQUIRE(first.isOk());
     const int firstId = first.value.getId();

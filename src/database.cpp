@@ -57,6 +57,13 @@ std::optional<User> Database::registerUser(const std::string& name, const std::s
 	if(name.empty() || password.empty()){
 		return std::nullopt;
 	}
+	// Usernames ignore case: "Ana" is taken if "ana" exists.
+	QSqlQuery taken;
+	taken.prepare("SELECT 1 FROM Users WHERE user_name = :name COLLATE NOCASE;");
+	taken.bindValue(":name", QString::fromStdString(name));
+	if (!taken.exec() || taken.next()) {
+		return std::nullopt;
+	}
 	QSqlQuery query;
 	query.prepare("INSERT INTO Users (user_name, user_password) VALUES (:name, :password);");
 	query.bindValue(":name", QString::fromStdString(name));
@@ -72,7 +79,8 @@ std::optional<User> Database::registerUser(const std::string& name, const std::s
 //Checks if username is found and password is matching, returns a User object that matches the login if successful.
 std::optional<User> Database::login(const std::string& name, const std::string& password) {
 	QSqlQuery query;
-	query.prepare("SELECT user_id, user_name, user_password FROM Users WHERE user_name = :name AND user_password = :password;");
+	// The name ignores case; the password does not.
+	query.prepare("SELECT user_id, user_name, user_password FROM Users WHERE user_name = :name COLLATE NOCASE AND user_password = :password;");
 	query.bindValue(":name", QString::fromStdString(name));
 	query.bindValue(":password", QString::fromStdString(password));
 	bool status = query.exec();
@@ -82,7 +90,8 @@ std::optional<User> Database::login(const std::string& name, const std::string& 
 	}
 
 	if(query.next()) {
-		return User(query.value(0).toInt(), name);
+		// The name as it was registered ("ana"), even if typed as "ANA".
+		return User(query.value(0).toInt(), query.value(1).toString().toStdString());
 	}
 	return std::nullopt;  // no such user, or the password is wrong
 }
