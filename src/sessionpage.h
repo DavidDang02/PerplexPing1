@@ -1,11 +1,13 @@
 // VIEW: the window shown while a session is running. Has the "I'm Lost"
 // button, a question box, and End Session, and announces each as a signal.
-// Knows nothing about Session.
+// Gets the Session from the controller and words it itself (ViewText).
 
 #pragma once
 
 #include <QMainWindow>
 #include <QString>
+
+#include "session.h"
 
 namespace Ui {
 class SessionPage;
@@ -18,7 +20,7 @@ class SessionPage : public QMainWindow {
   explicit SessionPage(QWidget* parent = nullptr);
   ~SessionPage();
 
-  void setStatus(const QString& text);  // sets statusLabel
+  void showSession(const Session& session);  // the live Lost / question counts
   void clearQuestion();                 // empties the question box
 
  signals:

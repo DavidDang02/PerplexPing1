@@ -1,6 +1,8 @@
 #include "sessionpage.h"
 #include "ui_sessionpage.h"
 
+#include "viewtext.h"
+
 SessionPage::SessionPage(QWidget* parent) : QMainWindow(parent), ui(new Ui::SessionPage) {
   ui->setupUi(this);
 
@@ -13,8 +15,8 @@ SessionPage::~SessionPage() {
   delete ui;
 }
 
-void SessionPage::setStatus(const QString& text) {
-  ui->statusLabel->setText(text);
+void SessionPage::showSession(const Session& session) {
+  ui->statusLabel->setText(ViewText::formatLiveStatus(session));
 }
 
 void SessionPage::clearQuestion() {

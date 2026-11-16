@@ -1,6 +1,7 @@
 // CONTROLLER: receives signals from the three pages, asks the model (AppModel)
-// to do the work, then tells the pages what to show and which page is on
-// screen. Has no widgets of its own and never touches the database.
+// to do the work, then hands the pages model objects and error codes to show
+// and picks which page is on screen. Has no widgets of its own, never touches
+// the database, and never builds display text (the pages do, with ViewText).
 
 #pragma once
 

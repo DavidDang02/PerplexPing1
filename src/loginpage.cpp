@@ -1,6 +1,8 @@
 #include "loginpage.h"
 #include "ui_loginpage.h"
 
+#include "viewtext.h"
+
 LoginPage::LoginPage(QWidget* parent) : QMainWindow(parent), ui(new Ui::LoginPage) {
   ui->setupUi(this);
 
@@ -29,8 +31,8 @@ void LoginPage::clearFields() {
   ui->usernameEdit->setFocus();
 }
 
-void LoginPage::showError(const QString& message) {
-  ui->errorLabel->setText(message);
+void LoginPage::showError(Error error) {
+  ui->errorLabel->setText(ViewText::getErrorText(error));
   ui->errorLabel->show();
 }
 
