@@ -14,7 +14,7 @@ Built on top of master (the M2 prototype). Keep the M2 tests passing.
 | Controller | `ServerClient` (WebSocket in the app), `AppController` (view signal → request, reply → view), `PanoptoClient` | their `.h/.cpp`, `tests/test_protocol.cpp` |
 | View | `MainWindow` and the pages in section 7 | each page's `.h/.cpp` |
 
-Shared by everyone (in `headers/`, don't change without telling the team): `schema.sql`, `database.h`, `appmodel.h`, `protocol.h`, `error.h`, and the data classes `user.h`, `course.h`, `session.h`, `lostping.h`, `sessionquestion.h`, `answer.h`, `recording.h`.
+Shared by everyone (in `headers/`, don't change without telling the team): `schema.sql`, `database.h`, `appmodel.h`, `protocol.h`, `error.h`, `validation.h`, and the data classes `user.h`, `course.h`, `session.h`, `lostping.h`, `sessionquestion.h`, `answer.h`, `recording.h`.
 
 ## 2. The flow
 
