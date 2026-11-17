@@ -4,10 +4,12 @@
 #include "serverclient.h"
 
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QObject>
+#include <QStringList>
 #include <QWebSocket>
 
 ServerClient::ServerClient(const QString& url, int connectTimeoutMs)
@@ -41,7 +43,7 @@ ProtocolResponse ServerClient::sendAndWait(const QJsonObject& request) {
   ProtocolResponse response;
 
   if (socket_.state() == QAbstractSocket::UnconnectedState) {
-    return response; // ok=false, error empty
+    return response;  // ok=false, error empty
   }
 
   QString requestJson =
@@ -102,15 +104,15 @@ ProtocolResponse ServerClient::sendSessionOp(const std::string& op,
   return sendAndWait(request);
 }
 
-std::optional<User> ServerClient::registerUser(const std::string& name,
-                                                const std::string& password) {
+Result<User> ServerClient::registerUser(const std::string& name,
+                                        const std::string& password) {
   QJsonObject params;
   params["name"] = QString::fromStdString(name);
   params["password"] = QString::fromStdString(password);
 
   ProtocolResponse resp = sendAuthOp("registerUser", params);
   if (!resp.ok) {
-    return std::nullopt;
+    return getErrorFromCode(resp.error);
   }
 
   User user;
@@ -118,15 +120,15 @@ std::optional<User> ServerClient::registerUser(const std::string& name,
   return user;
 }
 
-std::optional<User> ServerClient::login(const std::string& name,
-                                        const std::string& password) {
+Result<User> ServerClient::logIn(const std::string& name,
+                                 const std::string& password) {
   QJsonObject params;
   params["name"] = QString::fromStdString(name);
   params["password"] = QString::fromStdString(password);
 
-  ProtocolResponse resp = sendAuthOp("login", params);
+  ProtocolResponse resp = sendAuthOp("logIn", params);
   if (!resp.ok) {
-    return std::nullopt;
+    return getErrorFromCode(resp.error);
   }
 
   User user;
@@ -134,13 +136,13 @@ std::optional<User> ServerClient::login(const std::string& name,
   return user;
 }
 
-Session ServerClient::createSession(int userId) {
+Result<Session> ServerClient::createSession(int userId) {
   QJsonObject params;
   params["userId"] = userId;
 
   ProtocolResponse resp = sendSessionOp("createSession", params);
   if (!resp.ok) {
-    return Session{};
+    return getErrorFromCode(resp.error);
   }
 
   Session session;
@@ -148,7 +150,8 @@ Session ServerClient::createSession(int userId) {
   return session;
 }
 
-void ServerClient::saveInput(int sessionId, int userId, SessionInput& input) {
+Result<SessionInput> ServerClient::saveInput(int sessionId, int userId,
+                                             SessionInput input) {
   QJsonObject params;
   params["sessionId"] = sessionId;
   params["userId"] = userId;
@@ -156,30 +159,34 @@ void ServerClient::saveInput(int sessionId, int userId, SessionInput& input) {
 
   ProtocolResponse resp = sendSessionOp("saveInput", params);
   if (!resp.ok) {
-    return;
+    return getErrorFromCode(resp.error);
   }
 
   int inputId = resp.data["inputId"].toInt(0);
   input.setId(inputId);
+  return input;
 }
 
-void ServerClient::saveSessionEnd(int sessionId,
-                                  Session::Clock::time_point endTime) {
+Result<bool> ServerClient::saveSessionEnd(int sessionId,
+                                          Session::Clock::time_point endTime) {
   QJsonObject params;
   params["sessionId"] = sessionId;
-  params["endTime"] =
-      QString::fromStdString(timeToJsonString(endTime));
+  params["endTime"] = QString::fromStdString(timeToJsonString(endTime));
 
-  sendSessionOp("saveSessionEnd", params);
+  ProtocolResponse resp = sendSessionOp("saveSessionEnd", params);
+  if (!resp.ok) {
+    return getErrorFromCode(resp.error);
+  }
+  return true;
 }
 
-std::optional<Session> ServerClient::loadSession(int sessionId) {
+Result<Session> ServerClient::loadSession(int sessionId) {
   QJsonObject params;
   params["sessionId"] = sessionId;
 
   ProtocolResponse resp = sendSessionOp("loadSession", params);
   if (!resp.ok) {
-    return std::nullopt;
+    return getErrorFromCode(resp.error);
   }
 
   Session session;
@@ -187,13 +194,13 @@ std::optional<Session> ServerClient::loadSession(int sessionId) {
   return session;
 }
 
-std::vector<Session> ServerClient::listSessionsForUser(int userId) {
+Result<std::vector<Session>> ServerClient::listSessionsForUser(int userId) {
   QJsonObject params;
   params["userId"] = userId;
 
   ProtocolResponse resp = sendSessionOp("listSessionsForUser", params);
   if (!resp.ok) {
-    return {};
+    return getErrorFromCode(resp.error);
   }
 
   std::vector<Session> sessions;

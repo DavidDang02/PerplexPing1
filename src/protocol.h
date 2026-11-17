@@ -1,6 +1,9 @@
 // Shared JSON protocol helpers for the PerplexPing client/server setup.
 // Converts between the plain C++ models (User, Session, SessionInput) and
 // QJsonObject wire formats, and wraps server responses into simple structs.
+//
+// The domain error on both sides is Error from "error.h". The wire format for
+// an error is exactly the enumerator name, e.g. "WrongLogin".
 
 #pragma once
 
@@ -16,7 +19,7 @@
 #include "user.h"
 
 // A server response envelope:
-//   {"id": <request id>, "ok": <bool>, "error": "<string>? , "data": {...}}
+//   {"id": <request id>, "ok": <bool>, "error": "<string>?, "data": {...}}
 struct ProtocolResponse {
     int64_t id = 0;
     bool ok = false;
@@ -26,7 +29,8 @@ struct ProtocolResponse {
 
 // ---- Time helpers: UTC ISO 8601 text <-> JSON strings ----
 
-// Stored as UTC ISO 8601 text, e.g. "2026-10-31T00:53:00Z".
+// Stored as UTC ISO 8601 text, e.g. "2026-10-31T00:53:00Z". UTC has no daylight
+// saving, so a time always loads back exactly as it was saved.
 std::string timeToJsonString(std::chrono::system_clock::time_point time);
 std::chrono::system_clock::time_point jsonStringToTime(const std::string& text);
 
@@ -49,7 +53,3 @@ bool sessionFromJson(const QJsonObject& obj, Session& session);
 
 bool parseResponse(const QJsonObject& obj, ProtocolResponse& out);
 bool makeResponse(int64_t id, bool ok, const std::string& error, const QJsonObject& data, QJsonObject& out);
-
-// ---- Error string <-> domain error ----
-std::string authErrorToWire(AuthError error);
-std::string authErrorFromWire(const std::string& wire);

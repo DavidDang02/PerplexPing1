@@ -2,6 +2,7 @@
 
 #include "protocol.h"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 
@@ -122,32 +123,4 @@ bool makeResponse(int64_t id, bool ok, const std::string& error,
   }
   out["data"] = data;
   return true;
-}
-
-std::string authErrorToWire(AuthError error) {
-  switch (error) {
-    case AuthError::None:
-      return "";
-    case AuthError::EmptyName:
-      return "EmptyName";
-    case AuthError::EmptyPassword:
-      return "EmptyPassword";
-    case AuthError::NameTaken:
-      return "NameTaken";
-    case AuthError::WrongLogin:
-      return "WrongLogin";
   }
-  return "ServerError";
-}
-
-std::string authErrorFromWire(const std::string& wire) {
-  if (wire == "NameTaken")
-    return "NameTaken";
-  if (wire == "WrongLogin")
-    return "WrongLogin";
-  if (wire == "EmptyName")
-    return "EmptyName";
-  if (wire == "EmptyPassword")
-    return "EmptyPassword";
-  return "";
-}

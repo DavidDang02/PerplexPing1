@@ -52,34 +52,34 @@ void SocketsServer::registerHandlers() {
       std::string name = params["name"].toString().toStdString();
       std::string password = params["password"].toString().toStdString();
 
-      std::optional<User> newUser = db_->registerUser(name, password);
-      if (!newUser) {
+      Result<User> newUser = db_->registerUser(name, password);
+      if (!newUser.isOk()) {
         resp["ok"] = false;
-        resp["error"] = "NameTaken";
+        resp["error"] = QString::fromStdString(getErrorCode(newUser.error));
         return;
       }
       state.authenticated = true;
-      state.userId = newUser->getId();
+      state.userId = newUser.value.getId();
       resp["ok"] = true;
-      resp["data"] = userToJson(*newUser);
+      resp["data"] = userToJson(newUser.value);
     });
 
-  handlers_.insert("login",
+  handlers_.insert("logIn",
                    [this](QWebSocket* sender, ClientState& state,
                           const QJsonObject& params, QJsonObject& resp) {
       std::string name = params["name"].toString().toStdString();
       std::string password = params["password"].toString().toStdString();
 
-      std::optional<User> found = db_->login(name, password);
-      if (!found) {
+      Result<User> found = db_->logIn(name, password);
+      if (!found.isOk()) {
         resp["ok"] = false;
-        resp["error"] = "WrongLogin";
+        resp["error"] = QString::fromStdString(getErrorCode(found.error));
         return;
       }
       state.authenticated = true;
-      state.userId = found->getId();
+      state.userId = found.value.getId();
       resp["ok"] = true;
-      resp["data"] = userToJson(*found);
+      resp["data"] = userToJson(found.value);
     });
 
   handlers_.insert("createSession",
@@ -90,9 +90,14 @@ void SocketsServer::registerHandlers() {
         resp["error"] = "NotLoggedIn";
         return;
       }
-      Session session = db_->createSession(state.userId);
+      Result<Session> session = db_->createSession(state.userId);
+      if (!session.isOk()) {
+        resp["ok"] = false;
+        resp["error"] = QString::fromStdString(getErrorCode(session.error));
+        return;
+      }
       resp["ok"] = true;
-      resp["data"] = sessionToJson(session);
+      resp["data"] = sessionToJson(session.value);
     });
 
   handlers_.insert("saveInput",
@@ -114,13 +119,18 @@ void SocketsServer::registerHandlers() {
       }
 
       SessionInput input;
-  sessionInputFromJson(inputObj, input);
+      sessionInputFromJson(inputObj, input);
 
-      db_->saveInput(sessionId, userId, input);
+      Result<SessionInput> saved = db_->saveInput(sessionId, userId, input);
+      if (!saved.isOk()) {
+        resp["ok"] = false;
+        resp["error"] = QString::fromStdString(getErrorCode(saved.error));
+        return;
+      }
 
       resp["ok"] = true;
       QJsonObject data;
-      data["inputId"] = input.getId();
+      data["inputId"] = saved.value.getId();
       resp["data"] = data;
     });
 
@@ -136,7 +146,12 @@ void SocketsServer::registerHandlers() {
       int sessionId = params["sessionId"].toInt();
       std::string endStr = params["endTime"].toString().toStdString();
 
-      db_->saveSessionEnd(sessionId, jsonStringToTime(endStr));
+      Result<bool> ok = db_->saveSessionEnd(sessionId, jsonStringToTime(endStr));
+      if (!ok.isOk()) {
+        resp["ok"] = false;
+        resp["error"] = QString::fromStdString(getErrorCode(ok.error));
+        return;
+      }
 
       resp["ok"] = true;
     });
@@ -152,14 +167,14 @@ void SocketsServer::registerHandlers() {
 
       int sessionId = params["sessionId"].toInt();
 
-      std::optional<Session> session = db_->loadSession(sessionId);
-      if (!session) {
+      Result<Session> session = db_->loadSession(sessionId);
+      if (!session.isOk()) {
         resp["ok"] = false;
-        resp["error"] = "NotFound";
+        resp["error"] = QString::fromStdString(getErrorCode(session.error));
         return;
       }
       resp["ok"] = true;
-      resp["data"] = sessionToJson(*session);
+      resp["data"] = sessionToJson(session.value);
     });
 
   handlers_.insert("listSessionsForUser",
@@ -173,9 +188,16 @@ void SocketsServer::registerHandlers() {
 
       int userId = params["userId"].toInt(state.userId);
 
-      std::vector<Session> sessions = db_->listSessionsForUser(userId);
+      Result<std::vector<Session>> sessionsResult =
+          db_->listSessionsForUser(userId);
+      if (!sessionsResult.isOk()) {
+        resp["ok"] = false;
+        resp["error"] = QString::fromStdString(
+            getErrorCode(sessionsResult.error));
+        return;
+      }
       QJsonArray sessionsArr;
-      for (const Session& s : sessions) {
+      for (const Session& s : sessionsResult.value) {
         sessionsArr.append(sessionToJson(s));
       }
       QJsonObject data;

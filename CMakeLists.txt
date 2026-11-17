@@ -35,14 +35,15 @@ add_executable(perplexing_server
     src/user.cpp
     src/database.cpp
     src/protocol.cpp
+    src/error.cpp
 )
 target_link_libraries(perplexing_server PRIVATE Qt6::Sql Qt6::WebSockets)
 target_include_directories(perplexing_server PRIVATE src server)
 
 # ---- Tests (model + protocol + integration) ----
-add_executable(test_build ${TEST_SOURCES} ${APP_SOURCES_NO_MAIN})
+add_executable(test_build ${TEST_SOURCES} ${APP_SOURCES_NO_MAIN} tests/test_server_auth.cpp server/socketserver.cpp)
 target_link_libraries(test_build PRIVATE Qt6::Widgets Qt6::Sql Qt6::WebSockets)
-target_include_directories(test_build PRIVATE src tests)
+target_include_directories(test_build PRIVATE src tests server)
 
 enable_testing()
 add_test(NAME test_build COMMAND test_build)

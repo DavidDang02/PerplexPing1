@@ -7,13 +7,10 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
-#include <condition_variable>
-#include <mutex>
-#include <optional>
 #include <string>
 #include <vector>
-#include <atomic>
 
 #include <QWebSocket>
 #include <QAbstractSocket>
@@ -44,31 +41,27 @@ public:
     ServerClient& operator=(const ServerClient&) = delete;
 
     // ---- Accounts ----
-    std::optional<User> registerUser(const std::string& name,
-                                     const std::string& password) override;
-    std::optional<User> login(const std::string& name,
+    Result<User> registerUser(const std::string& name,
                               const std::string& password) override;
+    Result<User> logIn(const std::string& name,
+                       const std::string& password) override;
 
     // ---- Sessions ----
-    Session createSession(int userId) override;
-    void saveInput(int sessionId, int userId, SessionInput& input) override;
-    void saveSessionEnd(int sessionId,
-                        Session::Clock::time_point endTime) override;
-    std::optional<Session> loadSession(int sessionId) override;
-    std::vector<Session> listSessionsForUser(int userId) override;
+    Result<Session> createSession(int userId) override;
+    Result<SessionInput> saveInput(int sessionId, int userId,
+                                   SessionInput input) override;
+    Result<bool> saveSessionEnd(int sessionId,
+                                Session::Clock::time_point endTime) override;
+    Result<Session> loadSession(int sessionId) override;
+    Result<std::vector<Session>> listSessionsForUser(int userId) override;
 
 private:
-    // Sends a request, waits for the response with the same id, and parses it.
-    // Returns the ProtocolResponse, with ok==false if transport failed.
     ProtocolResponse sendAndWait(const QJsonObject& request);
 
-    // Generic helpers for session requests where the server uses the
-    // authenticated user from the connection.
     ProtocolResponse sendAuthOp(const std::string& op, const QJsonObject& params);
     ProtocolResponse sendSessionOp(const std::string& op,
                                    const QJsonObject& params);
 
-    // Generates the next request ID.
     int64_t nextId();
 
     QWebSocket socket_;

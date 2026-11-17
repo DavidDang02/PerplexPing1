@@ -5,6 +5,7 @@
 #include <QStringList>
 
 #include "appmodel.h"
+#include "error.h"
 #include "loginpage.h"
 #include "mainpage.h"
 #include "sessionpage.h"
@@ -48,15 +49,17 @@ static QString formatInput(const Session& session, const SessionInput& input) {
 }
 
 // The message the login page shows for each reason AppModel gives.
-static QString authMessage(AuthError error) {
+static QString errorMessage(Error error) {
   switch (error) {
-    case AuthError::EmptyName:     return "Enter a username.";
-    case AuthError::EmptyPassword: return "Enter a password.";
-    case AuthError::NameTaken:     return "That username is already taken.";
-    case AuthError::WrongLogin:    return "Wrong username or password.";
-    case AuthError::None:          break;
+    case Error::EmptyName:       return "Enter a username.";
+    case Error::NameTooLong:     return "Username must be at most 64 characters.";
+    case Error::EmptyPassword:   return "Enter a password.";
+    case Error::PasswordTooLong: return "Password must be at most 64 characters.";
+    case Error::NameTaken:       return "That username is already taken.";
+    case Error::WrongLogin:      return "Wrong username or password.";
+    case Error::None:            return "";
+    default:                     return QString::fromLatin1(getErrorCode(error));
   }
-  return "";
 }
 
 // ---- Setup ----
@@ -98,10 +101,10 @@ void AppController::goTo(QWidget* page) {
 // ---- Login page ----
 
 void AppController::logIn() {
-  const AuthError error = model->logIn(loginPage->username().toStdString(),
-                                       loginPage->password().toStdString());
-  if (error != AuthError::None) {
-    loginPage->showError(authMessage(error));
+  const Result<User> result = model->logIn(loginPage->username().toStdString(),
+                                           loginPage->password().toStdString());
+  if (!result.isOk()) {
+    loginPage->showError(errorMessage(result.error));
     return;
   }
   loginPage->clearFields();
@@ -109,10 +112,10 @@ void AppController::logIn() {
 }
 
 void AppController::registerUser() {
-  const AuthError error = model->registerUser(loginPage->username().toStdString(),
-                                              loginPage->password().toStdString());
-  if (error != AuthError::None) {
-    loginPage->showError(authMessage(error));
+  const Result<User> result = model->registerUser(loginPage->username().toStdString(),
+                                                  loginPage->password().toStdString());
+  if (!result.isOk()) {
+    loginPage->showError(errorMessage(result.error));
     return;
   }
   loginPage->clearFields();
@@ -128,7 +131,7 @@ void AppController::logOut() {
 }
 
 void AppController::startSession() {
-  if (!model->startSession()) {
+  if (!model->startSession().isOk()) {
     return;
   }
   sessionPage->clearQuestion();
@@ -144,7 +147,8 @@ void AppController::selectSession(int row) {
 }
 
 void AppController::showMainPage() {
-  pastSessions = model->getPastSessions();
+  const Result<std::vector<Session>> sessionsResult = model->getPastSessions();
+  pastSessions = sessionsResult.isOk() ? sessionsResult.value : std::vector<Session>{};
 
   QStringList rows;
   for (const Session& session : pastSessions) {
