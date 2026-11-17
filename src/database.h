@@ -1,6 +1,7 @@
 // MODEL (storage): saves and loads Users, Sessions and SessionInputs in a
 // SQLite file using Qt SQL. Translates between table rows and model objects;
-// the rules live in the model classes, not here.
+// the rules live in the model classes, not here. Implements the DataStore
+// interface so AppModel can hold a local SQLite store or a remote one.
 //
 // Tables (created by open() if missing):
 //   Users         (user_id INTEGER PRIMARY KEY, user_name UNIQUE NOT NULL,
@@ -14,53 +15,41 @@
 
 #pragma once
 
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
+
 #include <QSqlDatabase>
 #include <QString>
 
+#include "datastore.h"
 #include "session.h"
 #include "sessioninput.h"
 #include "user.h"
 
-class Database {
+class Database : public DataStore {
 public:
     // path is a file such as "perplexping.db", or ":memory:" in tests.
     // Uses Qt's default connection, so open only one Database at a time.
     explicit Database(const QString& path);
-    ~Database();
+    ~Database() override;
 
     // Opens the file and creates the tables if they don't exist.
-    // Returns false if the file can't be opened.
+    // Returns false if the file can't be opened. (Not part of DataStore:
+    // the remote ServerClient is connected by other means.)
     bool open();
 
-    // ---- Users ----
-    // Saves a new user. nullopt if the name or password is empty, or the name
-    // is taken.
-    std::optional<User> registerUser(const std::string& name, const std::string& password);
-
-    // nullopt if there is no such user or the password is wrong.
-    std::optional<User> login(const std::string& name, const std::string& password);
+    // ---- Accounts ----
+    std::optional<User> registerUser(const std::string& name, const std::string& password) override;
+    std::optional<User> login(const std::string& name, const std::string& password) override;
 
     // ---- Sessions ----
-    // Inserts a running session for userId, starting now, and returns it
-    // with its new sessionID.
-    Session createSession(int userId);
-
-    // Saves one input of a session and sets its id. Call after
-    // Session::addInput returned true.
-    void saveInput(int sessionId, int userId, SessionInput& input);
-
-    // Saves the end time. Call after Session::endSession.
-    void saveSessionEnd(int sessionId, Session::Clock::time_point endTime);
-
-    // Rebuilds a Session (with all its inputs, in the order they were saved).
-    // nullopt if there is no such session.
-    std::optional<Session> loadSession(int sessionId);
-
-    // Every session the user started, newest first, each with its inputs.
-    std::vector<Session> listSessionsForUser(int userId);
+    Session createSession(int userId) override;
+    void saveInput(int sessionId, int userId, SessionInput& input) override;
+    void saveSessionEnd(int sessionId, Session::Clock::time_point endTime) override;
+    std::optional<Session> loadSession(int sessionId) override;
+    std::vector<Session> listSessionsForUser(int userId) override;
 
 private:
     // Converts between a time and the UTC text stored in the tables,

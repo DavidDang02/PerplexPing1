@@ -1,6 +1,8 @@
 // MODEL: the coordinator for the app. Remembers who is logged in and which
 // session is running, applies the Session rules, and is the only class that
-// calls Database. The controller talks to this class, never to Database.
+// calls DataStore. The controller talks to this class, never to Database or
+// any specific implementation. Both the local Database (SQLite) and the
+// ServerClient (Qt WebSocket to the central server) implement DataStore.
 
 #pragma once
 
@@ -8,19 +10,14 @@
 #include <string>
 #include <vector>
 
+#include "datastore.h"
 #include "session.h"
+#include "sessioninput.h"
 #include "user.h"
-
-class Database;
-
-// Why logging in or registering failed. None means it worked.
-// Login doesn't say whether the name or the password was wrong, so the app
-// never reveals which usernames exist.
-enum class AuthError { None, EmptyName, EmptyPassword, NameTaken, WrongLogin };
 
 class AppModel {
 public:
-    explicit AppModel(Database* db);  // not owned
+    explicit AppModel(DataStore* store);  // not owned
 
     // ---- Accounts ----
     // Both log the user in on success and return AuthError::None.
@@ -53,7 +50,7 @@ public:
     std::vector<Session> getPastSessions() const;
 
 private:
-    Database* db;
+    DataStore* store;
     std::optional<User> currentUser;
     std::optional<Session> currentSession;
 };

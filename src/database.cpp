@@ -53,7 +53,7 @@ bool Database::open() {
 }
 
 //Saving a new user. Takes username and password, saves it in Users table as a new row. Creates a new User object with the ID and name and returns it.
-std::optional<User> Database::registerUser(const std::string& name, const std::string& password){
+std::optional<User> Database::registerUser(const std::string& name, const std::string& password) {
 	if(name.empty() || password.empty()){
 		return std::nullopt;
 	}
@@ -107,7 +107,7 @@ Session Database::createSession(int userId) {
 }
 
 
-void Database::saveInput(int sessionId, int userId, SessionInput& input){
+void Database::saveInput(int sessionId, int userId, SessionInput& input) {
 
 	QSqlQuery query;
 	query.prepare("INSERT INTO Sessioninputs (session_id, user_id, input_time, input_type, input_question) VALUES(:sessionid, :userid, :inputtime, :inputtype, :inputquestion);");
@@ -149,7 +149,7 @@ void Database::saveSessionEnd(int sessionId, Session::Clock::time_point endTime)
 }
 
 // Every session the user started, newest first, each with its inputs.
-std::vector<Session> Database::listSessionsForUser(int userId){
+std::vector<Session> Database::listSessionsForUser(int userId) {
 	std::vector<Session> sessions;
 
 	QSqlQuery query;
@@ -178,7 +178,7 @@ std::vector<Session> Database::listSessionsForUser(int userId){
 
 // Rebuilds one session and its inputs (in the order they were saved).
 // nullopt if there is no session with this id.
-std::optional<Session> Database::loadSession(int sessionId){
+std::optional<Session> Database::loadSession(int sessionId) {
 	QSqlQuery query;
 	query.prepare("SELECT host_id, start_date, end_date FROM Sessions WHERE session_id = :sessionId;");
 	query.bindValue(":sessionId", sessionId);

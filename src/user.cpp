@@ -1,8 +1,8 @@
 #include "user.h"
 
 User::User(int id, std::string name) {
-	this->id = id;
-	this->name = name;
+    this->id = id;
+    this->name = name;
 }
 
 int User::getId() const{

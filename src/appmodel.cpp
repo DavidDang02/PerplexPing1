@@ -2,7 +2,7 @@
 
 #include "database.h"
 
-AppModel::AppModel(Database* db) : db(db) {}
+AppModel::AppModel(DataStore* store) : store(store) {}
 
 // ---- Accounts ----
 
@@ -33,8 +33,8 @@ AuthError AppModel::registerUser(const std::string& rawName, const std::string& 
     if (AuthError error = checkFields(name, password); error != AuthError::None) {
         return error;
     }
-    // The fields are valid, so the database only refuses a name that is taken.
-    currentUser = db->registerUser(name, password);
+    // The fields are valid, so the store only refuses a name that is taken.
+    currentUser = store->registerUser(name, password);
     return currentUser ? AuthError::None : AuthError::NameTaken;
 }
 
@@ -43,7 +43,7 @@ AuthError AppModel::logIn(const std::string& rawName, const std::string& passwor
     if (AuthError error = checkFields(name, password); error != AuthError::None) {
         return error;
     }
-    currentUser = db->login(name, password);
+    currentUser = store->login(name, password);
     return currentUser ? AuthError::None : AuthError::WrongLogin;
 }
 
@@ -69,7 +69,7 @@ bool AppModel::startSession() {
     }
     // The database saves a new running session (start = now) and returns it
     // with the id it picked.
-    currentSession = db->createSession(currentUser->getId());
+    currentSession = store->createSession(currentUser->getId());
     return true;
 }
 
@@ -78,7 +78,7 @@ bool AppModel::clickLostButton() {
         return false;
     }
     SessionInput input = currentSession->getInputs().back();
-    db->saveInput(currentSession->getId(), currentUser->getId(), input);
+    store->saveInput(currentSession->getId(), currentUser->getId(), input);
     return true;
 }
 
@@ -87,7 +87,7 @@ bool AppModel::askQuestion(const std::string& text) {
         return false;
     }
     SessionInput input = currentSession->getInputs().back();
-    db->saveInput(currentSession->getId(), currentUser->getId(), input);
+    store->saveInput(currentSession->getId(), currentUser->getId(), input);
     return true;
 }
 
@@ -96,7 +96,7 @@ void AppModel::endSession() {
         return;
     }
     currentSession->endSession();
-    db->saveSessionEnd(currentSession->getId(), currentSession->getEndTime());
+    store->saveSessionEnd(currentSession->getId(), currentSession->getEndTime());
     currentSession.reset();
 }
 
@@ -114,5 +114,5 @@ std::vector<Session> AppModel::getPastSessions() const {
     if (!currentUser) {
         return {};
     }
-    return db->listSessionsForUser(currentUser->getId());
+    return store->listSessionsForUser(currentUser->getId());
 }

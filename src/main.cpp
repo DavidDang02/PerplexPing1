@@ -10,22 +10,25 @@
 #include "database.h"
 #include "loginpage.h"
 #include "mainpage.h"
+#include "serverclient.h"
 #include "sessionpage.h"
 
 int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
 
-  // The database file sits next to the app, so every run sees the same data.
-  Database db(QCoreApplication::applicationDirPath() + "/perplexping.db");
-  if (!db.open()) {
-    QMessageBox::critical(nullptr, "PerplexPing", "Could not open perplexping.db.");
+  // The client talks to the central server over WebSocket. If the server is
+  // not reachable, the app shows a generic connection error and exits.
+  ServerClient client("ws://localhost:8081");
+  if (!client.isConnected()) {
+    QMessageBox::critical(nullptr, "PerplexPing",
+                          "Could not connect to the PerplexPing server.");
     return 1;
   }
 
   LoginPage loginPage;
   MainPage mainPage;
   SessionPage sessionPage;
-  AppModel model(&db);
+  AppModel model(&client);
   AppController controller(&model, &loginPage, &mainPage, &sessionPage);
 
   return app.exec();
