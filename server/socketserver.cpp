@@ -13,10 +13,11 @@
 #include "sessioninput.h"
 #include "user.h"
 
-SocketsServer::SocketsServer(int port, Database* db, QObject* parent)
-    : QObject(parent), db_(db), port_(port) {
+SocketsServer::SocketsServer(int port, Database* db, QObject* parent,
+                             const QHostAddress& host)
+    : QObject(parent), db_(db), port_(port), host_(host) {
   server_ = new QWebSocketServer(QStringLiteral("PerplexPingServer"),
-                                  QWebSocketServer::NonSecureMode, this);
+                                 QWebSocketServer::NonSecureMode, this);
 
   registerHandlers();
 
@@ -32,7 +33,7 @@ SocketsServer::~SocketsServer() {
 }
 
 bool SocketsServer::listen() {
-  if (!server_->listen(QHostAddress::LocalHost, port_)) {
+  if (!server_->listen(host_, port_)) {
     lastError_ = server_->errorString();
     qDebug() << "Failed to listen:" << lastError_;
     return false;

@@ -9,6 +9,7 @@
 #include <memory>
 
 #include <QHash>
+#include <QHostAddress>
 #include <QJsonObject>
 #include <QObject>
 #include <QUrl>
@@ -26,11 +27,14 @@ struct ClientState {
 class SocketsServer : public QObject {
     Q_OBJECT
 public:
-    explicit SocketsServer(int port, Database* db, QObject* parent = nullptr);
+    explicit SocketsServer(int port, Database* db,
+                           QObject* parent = nullptr,
+                           const QHostAddress& host = QHostAddress::LocalHost);
     ~SocketsServer() override;
 
     bool listen();
     int port() const;
+    QHostAddress host() const { return host_; }
     QString lastError() const { return lastError_; }
 
 private slots:
@@ -48,6 +52,7 @@ private:
     Database* db_;          // not owned
     QWebSocketServer* server_;
     int port_;
+    QHostAddress host_;
     QString lastError_;
 
     // Authentication state keyed by socket pointer.
