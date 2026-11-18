@@ -6,6 +6,8 @@
 #include <QMainWindow>
 #include <QString>
 
+#include "error.h"
+
 namespace Ui {
 class LoginPage;
 }
@@ -21,9 +23,9 @@ class LoginPage : public QMainWindow {
   QString password() const;
   void clearFields();  // empties both fields and hides the error, e.g. after logging out
 
-  // Shows the red error box with `message`, e.g. "Wrong username or password."
-  // or "That username is already taken."
-  void showError(const QString& message);
+  // Shows the red error box with the sentence for `error`
+  // (ViewText::getErrorText), e.g. "Wrong username or password."
+  void showError(Error error);
   void clearError();  // hides the red error box
 
  signals:

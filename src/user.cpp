@@ -1,16 +1,16 @@
 #include "user.h"
 
-User::User(int id, std::string name) {
-    this->id = id;
-    this->name = name;
-}
+#include <utility>
 
-int User::getId() const{
-	return this->id;
+User::User() = default;
+
+User::User(int id, std::string name)
+    : id(id), name(std::move(name)) {}
+
+int User::getId() const {
+    return this->id;
 }
 
 const std::string& User::getName() const {
-	return this->name;
+    return this->name;
 }
-
-

@@ -28,7 +28,11 @@ public:
 
     // ---- Accounts ----
     // Both log the user in on success and return Result<User>.
-    // The name is trimmed first, so " ana " and "ana" are the same user.
+    // The name is trimmed first, so " ana " and "ana" are the same user, and
+    // it ignores case ("ANA" logs in as "ana"). Registering checks the limits
+    // in Validation (username 3-20 letters/digits/._-, password 8-64).
+    // Logging in only says EmptyName / EmptyPassword / WrongLogin, so it
+    // never reveals which usernames exist, and old accounts still work.
     Result<User> registerUser(const std::string& name, const std::string& password);
     Result<User> logIn(const std::string& name, const std::string& password);
     void logOut();  // also forgets any running session
@@ -42,6 +46,8 @@ public:
 
     // Record and save one input.
     Result<SessionInput> clickLostButton();
+    // Trims the text, then Validation::checkQuestion: EmptyQuestion or
+    // QuestionTooLong (over 500 characters).
     Result<SessionInput> askQuestion(const std::string& text);
 
     // Ends and saves the running session.

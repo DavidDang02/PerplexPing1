@@ -1,66 +1,12 @@
 #include "appcontroller.h"
 
 #include <QCoreApplication>
-#include <QDateTime>
-#include <QStringList>
 
 #include "appmodel.h"
 #include "error.h"
 #include "loginpage.h"
 #include "mainpage.h"
 #include "sessionpage.h"
-
-// ---- Formatting helpers (text for the view; the model never sees QString) ----
-
-static QString formatClockTime(Session::Clock::time_point time) {
-  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      time.time_since_epoch());
-  return QDateTime::fromMSecsSinceEpoch(ms.count()).toString("MMM d, h:mm AP");
-}
-
-// "50 min", or "<1 min" for a very short session. A session can be missing its
-// end time if the app was killed instead of quit (Qt Creator's Stop, a crash).
-static QString formatDuration(const Session& session) {
-  if (!session.isEnded()) {
-    return "no end time";
-  }
-  const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(
-      session.getEndTime() - session.getStartTime());
-  if (minutes.count() < 1) {
-    return "<1 min";
-  }
-  return QString("%1 min").arg(minutes.count());
-}
-
-// 754 -> "12:34 in"
-static QString formatOffset(long long seconds) {
-  return QString("%1:%2 in")
-      .arg(seconds / 60, 2, 10, QChar('0'))
-      .arg(seconds % 60, 2, 10, QChar('0'));
-}
-
-// "12:34 in · I'm lost" or "12:34 in · Q: what is a foreign key?"
-static QString formatInput(const Session& session, const SessionInput& input) {
-  const QString when = formatOffset(session.getOffsetSeconds(input));
-  if (input.getType() == InputType::Question) {
-    return when + " · Q: " + QString::fromStdString(input.getQuestionText());
-  }
-  return when + " · I'm lost";
-}
-
-// The message the login page shows for each reason AppModel gives.
-static QString errorMessage(Error error) {
-  switch (error) {
-    case Error::EmptyName:       return "Enter a username.";
-    case Error::NameTooLong:     return "Username must be at most 64 characters.";
-    case Error::EmptyPassword:   return "Enter a password.";
-    case Error::PasswordTooLong: return "Password must be at most 64 characters.";
-    case Error::NameTaken:       return "That username is already taken.";
-    case Error::WrongLogin:      return "Wrong username or password.";
-    case Error::None:            return "";
-    default:                     return QString::fromLatin1(getErrorCode(error));
-  }
-}
 
 // ---- Setup ----
 
@@ -104,7 +50,7 @@ void AppController::logIn() {
   const Result<User> result = model->logIn(loginPage->username().toStdString(),
                                            loginPage->password().toStdString());
   if (!result.isOk()) {
-    loginPage->showError(errorMessage(result.error));
+    loginPage->showError(result.error);
     return;
   }
   loginPage->clearFields();
@@ -115,7 +61,7 @@ void AppController::registerUser() {
   const Result<User> result = model->registerUser(loginPage->username().toStdString(),
                                                   loginPage->password().toStdString());
   if (!result.isOk()) {
-    loginPage->showError(errorMessage(result.error));
+    loginPage->showError(result.error);
     return;
   }
   loginPage->clearFields();
@@ -150,23 +96,13 @@ void AppController::showMainPage() {
   const Result<std::vector<Session>> sessionsResult = model->getPastSessions();
   pastSessions = sessionsResult.isOk() ? sessionsResult.value : std::vector<Session>{};
 
-  QStringList rows;
-  for (const Session& session : pastSessions) {
-    rows.append(QString("%1  ·  %2  ·  Lost: %3  ·  Questions: %4")
-                    .arg(formatClockTime(session.getStartTime()))
-                    .arg(formatDuration(session))
-                    .arg(session.getPressCount())
-                    .arg(session.getQuestionCount()));
-  }
-  mainPage->showSessions(rows);
-  mainPage->setStatus("Logged in as " + QString::fromStdString(model->getCurrentUser()->getName()));
+  mainPage->showSessions(pastSessions);
+  mainPage->showUser(*model->getCurrentUser());
 
   // Highlight the newest session and show its details, or blanks if there
   // are none.
   if (pastSessions.empty()) {
-    mainPage->setStartTime("Started: —");
-    mainPage->setEndTime("Ended: —");
-    mainPage->showPresses({});
+    mainPage->clearSessionDetails();
   } else {
     mainPage->selectSessionRow(0);
     showSessionDetails(pastSessions.front());
@@ -175,15 +111,7 @@ void AppController::showMainPage() {
 }
 
 void AppController::showSessionDetails(const Session& session) {
-  mainPage->setStartTime("Started: " + formatClockTime(session.getStartTime()));
-  mainPage->setEndTime(session.isEnded()
-                           ? "Ended: " + formatClockTime(session.getEndTime())
-                           : QString("Ended: —"));
-  QStringList rows;
-  for (const SessionInput& input : session.getInputs()) {
-    rows.append(formatInput(session, input));
-  }
-  mainPage->showPresses(rows);
+  mainPage->showSessionDetails(session);
 }
 
 // ---- Session page ----
@@ -195,7 +123,13 @@ void AppController::clickLostButton() {
 }
 
 void AppController::submitQuestion(const QString& text) {
-  model->askQuestion(text.toStdString());
+  const Result<SessionInput> result = model->askQuestion(text.toStdString());
+  if (result.isOk()) {
+    sessionPage->clearQuestion();
+    sessionPage->showQuestionSent();
+  } else {
+    sessionPage->showQuestionError(result.error);  // e.g. empty: tell the user instead of doing nothing
+  }
   refreshSessionPage();
 }
 
@@ -209,7 +143,5 @@ void AppController::refreshSessionPage() {
   if (session == nullptr) {
     return;
   }
-  sessionPage->setStatus(QString("Session in progress  ·  Lost: %1  ·  Questions: %2")
-                             .arg(session->getPressCount())
-                             .arg(session->getQuestionCount()));
+  sessionPage->showSession(*session);
 }

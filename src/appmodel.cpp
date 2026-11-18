@@ -1,35 +1,19 @@
 #include "appmodel.h"
 
 #include "datastore.h"
+#include "validation.h"
 
 AppModel::AppModel(DataStore* store) : store(store) {}
 
 // ---- Accounts ----
 
-// Removes spaces, tabs and newlines from both ends.
-static std::string trim(const std::string& text) {
-    const char* space = " \t\r\n";
-    const auto first = text.find_first_not_of(space);
-    if (first == std::string::npos) {
-        return "";
-    }
-    const auto last = text.find_last_not_of(space);
-    return text.substr(first, last - first + 1);
-}
-
 Result<User> AppModel::registerUser(const std::string& rawName, const std::string& password) {
-    const std::string name = trim(rawName);
-    if (name.empty()) {
-        return Error::EmptyName;
+    const std::string name = Validation::trim(rawName);
+    if (Error error = Validation::checkUsername(name); error != Error::None) {
+        return error;
     }
-    if (name.size() > kMaxUsernameLength) {
-        return Error::NameTooLong;
-    }
-    if (password.empty()) {
-        return Error::EmptyPassword;
-    }
-    if (password.size() > kMaxPasswordLength) {
-        return Error::PasswordTooLong;
+    if (Error error = Validation::checkPassword(password); error != Error::None) {
+        return error;
     }
     if (!store) {
         return Error::StorageError;
@@ -45,7 +29,7 @@ Result<User> AppModel::registerUser(const std::string& rawName, const std::strin
 }
 
 Result<User> AppModel::logIn(const std::string& rawName, const std::string& password) {
-    const std::string name = trim(rawName);
+    const std::string name = Validation::trim(rawName);
     if (name.empty()) {
         return Error::EmptyName;
     }
@@ -78,7 +62,6 @@ const User* AppModel::getCurrentUser() const {
 }
 
 // ---- The running session ----
-// Each action: verify login/session/input rules first, then save.
 
 Result<Session> AppModel::startSession() {
     if (!currentUser) {
@@ -131,9 +114,9 @@ Result<SessionInput> AppModel::askQuestion(const std::string& rawText) {
     if (currentSession->isEnded()) {
         return Error::SessionEnded;
     }
-    const std::string text = trim(rawText);
-    if (text.empty()) {
-        return Error::EmptyQuestion;
+    const std::string text = Validation::trim(rawText);
+    if (Error error = Validation::checkQuestion(text); error != Error::None) {
+        return error;  // EmptyQuestion or QuestionTooLong
     }
     if (!currentSession->askQuestion(text)) {
         return Error::SessionEnded;

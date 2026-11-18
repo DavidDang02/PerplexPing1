@@ -14,6 +14,6 @@ public:
     const std::string& getName() const;
 
 private:
-    int id;
+    int id = 0;
     std::string name;
 };

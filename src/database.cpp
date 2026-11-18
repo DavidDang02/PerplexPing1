@@ -74,7 +74,8 @@ Result<User> Database::registerUser(const std::string& name, const std::string& 
 // User. Fails with WrongLogin on bad credentials, StorageError on SQL error.
 Result<User> Database::logIn(const std::string& name, const std::string& password) {
     QSqlQuery query;
-    query.prepare("SELECT user_id, user_name, user_password FROM Users WHERE user_name = :name AND user_password = :password;");
+    // Username is case-insensitive; password is not.
+    query.prepare("SELECT user_id, user_name, user_password FROM Users WHERE user_name = :name COLLATE NOCASE AND user_password = :password;");
     query.bindValue(":name", QString::fromStdString(name));
     query.bindValue(":password", QString::fromStdString(password));
     bool status = query.exec();
@@ -84,7 +85,8 @@ Result<User> Database::logIn(const std::string& name, const std::string& passwor
     }
 
     if (query.next()) {
-        return User(query.value(0).toInt(), name);
+        // Return the name as it was registered (e.g. "ana" if typed as "ANA").
+        return User(query.value(0).toInt(), query.value(1).toString().toStdString());
     }
     return Error::WrongLogin;  // no such user, or the password is wrong
 }

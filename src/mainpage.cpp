@@ -1,6 +1,8 @@
 #include "mainpage.h"
 #include "ui_mainpage.h"
 
+#include "viewtext.h"
+
 MainPage::MainPage(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainPage) {
   ui->setupUi(this);
 
@@ -18,33 +20,34 @@ MainPage::~MainPage() {
   delete ui;
 }
 
-void MainPage::setStatus(const QString& text) {
-  ui->statusLabel->setText(text);
+void MainPage::showUser(const User& user) {
+  ui->statusLabel->setText("Logged in as " + QString::fromStdString(user.getName()));
 }
 
-void MainPage::setStartTime(const QString& text) {
-  ui->startLabel->setText(text);
-}
-
-void MainPage::setEndTime(const QString& text) {
-  ui->endLabel->setText(text);
-}
-
-// When a session is selected, this fills the timestamplist with the input times and details.
-void MainPage::showPresses(const QStringList& rows) {
-  ui->timestampList->clear();
-  for (const QString& row : rows) {
-    ui->timestampList->addItem(row);
-  }
-}
-
-void MainPage::showSessions(const QStringList& rows) {
+void MainPage::showSessions(const std::vector<Session>& sessions) {
   ui->sessionList->clear();
-  for (const QString& row : rows) {
-    ui->sessionList->addItem(row);
+  for (const Session& session : sessions) {
+    ui->sessionList->addItem(ViewText::formatSessionRow(session));
   }
 }
 
 void MainPage::selectSessionRow(int row) {
   ui->sessionList->setCurrentRow(row);
+}
+
+void MainPage::showSessionDetails(const Session& session) {
+  ui->startLabel->setText("Started: " + ViewText::formatClockTime(session.getStartTime()));
+  ui->endLabel->setText(session.isEnded()
+                            ? "Ended: " + ViewText::formatClockTime(session.getEndTime())
+                            : QString("Ended: —"));
+  ui->timestampList->clear();
+  for (const SessionInput& input : session.getInputs()) {
+    ui->timestampList->addItem(ViewText::formatInput(session, input));
+  }
+}
+
+void MainPage::clearSessionDetails() {
+  ui->startLabel->setText("Started: —");
+  ui->endLabel->setText("Ended: —");
+  ui->timestampList->clear();
 }
