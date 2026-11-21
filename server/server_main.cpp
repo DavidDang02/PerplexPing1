@@ -7,7 +7,7 @@
 #include <QHostInfo>
 
 #include "database.h"
-#include "socketserver.h"
+#include "perplexserver.h"
 
 // Resolve a host string (an IP literal like "127.0.0.1"/"::1", a hostname like
 // "localhost", or "0.0.0.0" for every interface) to a QHostAddress. An empty
@@ -87,12 +87,13 @@ int main(int argc, char* argv[]) {
   }
 
   Database db(dbPath);
-  if (!db.open()) {
+  Result<bool> opened = db.open();
+  if (!opened.isOk()) {
     qCritical() << "Database failed to open:" << dbPath;
     return 1;
   }
 
-  SocketsServer server(port, &db, nullptr, host);
+  PerplexServer server(port, &db, nullptr, host);
   if (!server.listen()) {
     qCritical() << "Failed to start server on" << host.toString() << ":"
                 << port << ":" << server.lastError();

@@ -8,9 +8,24 @@
 #include "doctest.h"
 
 #include <QCoreApplication>
+#include <QSqlDatabase>
 
 int main(int argc, char** argv) {
+    QCoreApplication::addLibraryPath("/usr/lib64/qt6/plugins");
     QCoreApplication app(argc, argv);
+
+    // debug: print library paths to see if Qt finds the plugin
+    std::cerr << "LIBPATHS: ";
+    for (const QString& p : QCoreApplication::libraryPaths()) {
+        std::cerr << p.toStdString() << " ";
+    }
+    std::cerr << "\n";
+
+    std::cerr << "DRIVERS: ";
+    for (const QString& d : QSqlDatabase::drivers()) {
+        std::cerr << d.toStdString() << " ";
+    }
+    std::cerr << "\n";
 
     doctest::Context ctx;
     ctx.applyCommandLine(argc, argv);

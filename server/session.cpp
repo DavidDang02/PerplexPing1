@@ -220,3 +220,4 @@ long long Session::getOffsetSeconds(Clock::time_point time) const {
     return std::chrono::duration_cast<std::chrono::seconds>(
         time - this->startTime).count();
 }
+

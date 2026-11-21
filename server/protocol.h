@@ -174,6 +174,8 @@ inline const QString kQuestionCount = QStringLiteral("questionCount");
 inline const QString kHasRecording = QStringLiteral("hasRecording");
 inline const QString kNewlyEnrolled = QStringLiteral("newlyEnrolled");
 inline const QString kCount = QStringLiteral("count");
+inline const QString kOk = QStringLiteral("ok");
+inline const QString kData = QStringLiteral("data");
 inline const QString kParticipants = QStringLiteral("participants");
 
 inline const QString kLostPing = QStringLiteral("lostPing");

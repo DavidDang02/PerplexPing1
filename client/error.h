@@ -96,17 +96,12 @@ Error getErrorFromCode(const std::string& code);
 template <typename T>
 struct Result {
     Error error = Error::None;
-    T value_{};
+    T value{};
 
     Result() = default;
     Result(Error error) : error(error) {}                           // failure
-    Result(T value) : error(Error::None), value_(std::move(value)) {}  // success
+    Result(T value) : error(Error::None), value(std::move(value)) {}  // success
 
     bool isOk() const { return error == Error::None; }
     bool has_value() const { return isOk(); }
-
-    // Convenience accessors so callers can write `result.value()` whether
-    // `value` is a field or a method.
-    T& value() { return value_; }
-    const T& value() const { return value_; }
 };

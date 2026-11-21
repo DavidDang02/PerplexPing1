@@ -8,7 +8,7 @@
 #include "database.h"
 #include "error.h"
 #include "serverclient.h"
-#include "socketserver.h"
+#include "perplexserver.h"  // Updated: use new server header
 
 #include <QCoreApplication>
 #include <QThread>
