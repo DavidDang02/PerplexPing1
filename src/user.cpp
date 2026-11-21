@@ -2,8 +2,6 @@
 
 #include <utility>
 
-User::User() = default;
-
 User::User(int id, std::string name)
     : id(id), name(std::move(name)) {}
 
