@@ -103,4 +103,5 @@ struct Result {
     Result(T value) : error(Error::None), value(std::move(value)) {}  // success
 
     bool isOk() const { return error == Error::None; }
+    bool has_value() const { return isOk(); }
 };
