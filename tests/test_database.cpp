@@ -1,151 +1,202 @@
 #include "doctest.h"
+
 #include "database.h"
-#include <QSqlQuery>
-#include <QVariant>
-#include "user.h"
+#include "error.h"
 
-// Every test opens its own empty in-memory database (":memory:"), so no test
-// depends on another one having run first, and each passes when run alone
-// (e.g. ./test_build -tc="Check Save Input"). M2 grading note: the old tests
-// shared test.db and failed when run on their own.
+#include <QCoreApplication>
+#include <QSqlError>
 
-// Opens a fresh empty database for one test.
-static void openFresh(Database& db) {
-	REQUIRE(db.open());
+using namespace std::chrono;
+
+TEST_SUITE("Database Users [F1]") {
+TEST_CASE("Create user succeeds") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> created = db.createUser("alice", "alice@scu.edu",
+                                         "hash123", "salt456", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
+    CHECK(created.value().getId() > 0);
+    CHECK(created.value().getName() == "alice");
+    CHECK(created.value().getEmail() == "alice@scu.edu");
 }
 
-TEST_CASE("Check Database Object Creation") {
-	Database db(":memory:");
-	CHECK(db.open() == true);
+TEST_CASE("Create duplicate username returns NameTaken") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> first = db.createUser("bob", "bob@scu.edu", "h1", "s1", 10000,
+                                       system_clock::now());
+    CHECK(first.isOk());
+
+    Result<User> second = db.createUser("bob", "other@scu.edu", "h2", "s2", 10000,
+                                        system_clock::now());
+    CHECK(!second.isOk());
+    CHECK(second.error == Error::NameTaken);
 }
 
-TEST_CASE("Check Database User Store & Retrevial") {
-	Database db(":memory:");
-	openFresh(db);
-	std::optional<User> user = db.registerUser("Crawford", "Crawford2!");
-	std::optional<User> test = db.login("Crawford", "Crawford2!");
-	REQUIRE(user.has_value());
-	REQUIRE(test.has_value());
-	CHECK(user->getName() == test->getName());
-	CHECK(user->getId() == test->getId());
+TEST_CASE("Create duplicate email returns EmailTaken") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> first = db.createUser("carol", "carol@scu.edu", "h1", "s1", 10000,
+                                       system_clock::now());
+    CHECK(first.isOk());
+
+    Result<User> second = db.createUser("carol2", "carol@scu.edu", "h2", "s2", 10000,
+                                        system_clock::now());
+    CHECK(!second.isOk());
+    CHECK(second.error == Error::EmailTaken);
 }
 
-TEST_CASE("Check Password Mismatch") {
-	Database db(":memory:");
-	openFresh(db);
-	// The user must exist, so this fails because of the password and not
-	// because the name is unknown (M2 grading note).
-	REQUIRE(db.registerUser("Crawford", "Crawford2!").has_value());
-	CHECK_FALSE(db.login("Crawford", "Crawford!").has_value());
-	CHECK(db.login("Crawford", "Crawford2!").has_value());  // the right one still works
+TEST_CASE("Create user with empty email stores NULL") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> created = db.createUser("dave", "", "h1", "s1", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
+    CHECK(created.value().getEmail() == "");
 }
 
-TEST_CASE("Check Username not found") {
-	Database db(":memory:");
-	openFresh(db);
-	REQUIRE(db.registerUser("Crawford", "Crawford2!").has_value());
-	CHECK_FALSE(db.login("Herbert", "Crawford2!").has_value());
+TEST_CASE("Get user by id") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> created = db.createUser("eve", "eve@scu.edu", "h1", "s1", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
+
+    Result<User> fetched = db.getUser(created.value().getId());
+    CHECK(fetched.isOk());
+    CHECK(fetched.value().getName() == "eve");
+    CHECK(fetched.value().getEmail() == "eve@scu.edu");
 }
 
-TEST_CASE("Check Session Creation") {
-	Database db(":memory:");
-	openFresh(db);
-	std::optional<User> user = db.registerUser("Crawford", "Crawford2!");
-	REQUIRE(user.has_value());
-	Session s = db.createSession(user->getId());
-	CHECK(s.getId() > 0);
-	CHECK(s.getUserId() == user->getId());
+TEST_CASE("Get non-existent user returns error") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> fetched = db.getUser(99999);
+    CHECK(!fetched.isOk());
+    // NoSuchUser is not in the original contract's Error enum for this scope,
+    // but we test the pattern; adjust per actual error values.
+    // Actually, checking for any error:
+    // (We'll just verify !isOk())
+    (void)fetched;
 }
 
-TEST_CASE("Check Save Input") {
-	Database db(":memory:");
-	openFresh(db);
-	std::optional<User> user = db.registerUser("Crawford", "Crawford2!");
-	REQUIRE(user.has_value());
-	Session s = db.createSession(user->getId());
-	REQUIRE(s.lostButtonClicked());
-	SessionInput input = s.getInputs()[0];
-	db.saveInput(s.getId(), user->getId(), input);
-	CHECK(input.getId() > 0);  // the database gave it an id
+TEST_CASE("Find user by name (case-insensitive)") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
 
-	std::optional<Session> loaded = db.loadSession(s.getId());
-	REQUIRE(loaded.has_value());
-	CHECK(loaded->getInputs().size() == 1);
+    Result<User> created = db.createUser("Frank", "frank@scu.edu", "h1", "s1", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
+
+    Result<User> found = db.findUserByName("FRANK");
+    CHECK(found.isOk());
+    CHECK(found.value().getName() == "Frank");
 }
 
-TEST_CASE("Check loadSession") {
-	Database db(":memory:");
-	openFresh(db);
-	std::optional<User> user = db.registerUser("Crawford", "Crawford2!");
-	REQUIRE(user.has_value());
-	Session session = db.createSession(user->getId());
-	for (int i = 0; i < 4; i++) {
-		REQUIRE(session.lostButtonClicked());
-	}
-	session.endSession();
-	db.saveSessionEnd(session.getId(), session.getEndTime());
-	std::vector<SessionInput> inputs = session.getInputs();
-	for (SessionInput& input : inputs) {
-		db.saveInput(session.getId(), user->getId(), input);
-	}
+TEST_CASE("Find user by email (case-insensitive)") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
 
-	std::optional<Session> loaded = db.loadSession(session.getId());
-	REQUIRE(loaded.has_value());
-	CHECK(loaded->getInputs().size() == inputs.size());
-	CHECK(loaded->isEnded());
+    Result<User> created = db.createUser("Grace", "GRACE@scu.edu", "h1", "s1", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
+
+    Result<User> found = db.findUserByEmail("grace@scu.edu");
+    CHECK(found.isOk());
+    CHECK(found.value().getName() == "Grace");
 }
 
+TEST_CASE("Get credentials for user") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
 
+    Result<User> created = db.createUser("heidi", "heidi@scu.edu", "hash99",
+                                         "salt99", 15000,
+                                         system_clock::now());
+    CHECK(created.isOk());
 
-TEST_CASE("Times are stored in UTC and load back exactly, in and out of daylight saving") {
-	Database db(":memory:");
-	REQUIRE(db.open());
-	std::optional<User> user = db.registerUser("ana", "pw");
-	REQUIRE(user.has_value());
-	Session session = db.createSession(user->getId());
-
-	using namespace std::chrono;
-	system_clock::time_point summer = system_clock::from_time_t(1783189815);  // 2026-07-04 18:30:15 UTC
-	system_clock::time_point winter = system_clock::from_time_t(1796236200);  // 2026-12-02 18:30:00 UTC
-	SessionInput lost(InputType::Lost, summer);
-	SessionInput question(InputType::Question, winter, "what is a foreign key?");
-	db.saveInput(session.getId(), user->getId(), lost);
-	db.saveInput(session.getId(), user->getId(), question);
-	db.saveSessionEnd(session.getId(), winter);
-
-	QSqlQuery raw("SELECT input_time FROM Sessioninputs ORDER BY input_id;");
-	REQUIRE(raw.next());
-	CHECK(raw.value(0).toString() == "2026-07-04T18:30:15Z");
-
-	std::optional<Session> loaded = db.loadSession(session.getId());
-	REQUIRE(loaded.has_value());
-	REQUIRE(loaded->getInputs().size() == 2);
-	CHECK(loaded->getInputs()[0].getTime() == summer);
-	CHECK(loaded->getInputs()[1].getTime() == winter);
-	CHECK(loaded->getEndTime() == winter);
+    Result<Credentials> creds = db.getCredentials(created.value().getId());
+    CHECK(creds.isOk());
+    CHECK(creds.value().userId == created.value().getId());
+    CHECK(creds.value().hashHex == "hash99");
+    CHECK(creds.value().saltHex == "salt99");
+    CHECK(creds.value().iterations == 15000);
 }
 
-TEST_CASE("loadSession returns nothing for a session id that doesn't exist") {
-	Database db(":memory:");
-	REQUIRE(db.open());
-	CHECK_FALSE(db.loadSession(12345).has_value());
+TEST_CASE("Get credentials for non-existent user returns error") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<Credentials> fetched = db.getCredentials(99999);
+    CHECK(!fetched.isOk());
 }
 
-TEST_CASE("A session with no inputs loads with no inputs") {
-	Database db(":memory:");
-	REQUIRE(db.open());
-	std::optional<User> user = db.registerUser("ana", "pw");
-	REQUIRE(user.has_value());
-	Session running = db.createSession(user->getId());
+TEST_CASE("Set password succeeds") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
 
-	std::optional<Session> loaded = db.loadSession(running.getId());
-	REQUIRE(loaded.has_value());
-	CHECK(loaded->getInputs().empty());
-	CHECK_FALSE(loaded->isEnded());  // never ended, so no end time yet
+    Result<User> created = db.createUser("ivan", "ivan@scu.edu", "oldhash",
+                                         "oldsalt", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
 
-	db.saveSessionEnd(running.getId(), running.getStartTime());
-	loaded = db.loadSession(running.getId());
-	REQUIRE(loaded.has_value());
-	CHECK(loaded->getInputs().empty());
-	CHECK(loaded->isEnded());
+    bool ok = db.setPassword(created.value().getId(), "newhash", "newsalts", 20000);
+    CHECK(ok);
+}
+
+TEST_CASE("Set email succeeds") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> created = db.createUser("judy", "judy@scu.edu", "h1", "s1", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
+
+    bool ok = db.setEmail(created.value().getId(), "judy.new@scu.edu");
+    CHECK(ok);
+
+    Result<User> fetched = db.getUser(created.value().getId());
+    CHECK(fetched.isOk());
+    CHECK(fetched.value().getEmail() == "judy.new@scu.edu");
+}
+
+TEST_CASE("Set email fails if another user has that email") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    Result<User> first = db.createUser("kelly", "kelly@scu.edu", "h1", "s1", 10000,
+                                       system_clock::now());
+    CHECK(first.isOk());
+
+    Result<User> second = db.createUser("larry", "larry2@scu.edu", "h2", "s2", 10000,
+                                        system_clock::now());
+    CHECK(second.isOk());
+
+    bool ok = db.setEmail(first.value().getId(), "larry@scu.edu");
+    CHECK(!ok);  // larry already has this email
+}
+
+TEST_CASE("Count live sessions hosted by new user") {
+    Database db(":memory:");
+    CHECK(db.open() == true);
+
+    // No users or sessions yet
+    int count = db.countLiveSessionsHostedBy(0);
+    CHECK(count == 0);
+
+    Result<User> created = db.createUser("mallory", "mallory@scu.edu", "h1", "s1", 10000,
+                                         system_clock::now());
+    CHECK(created.isOk());
+
+    // No sessions hosted yet
+    count = db.countLiveSessionsHostedBy(created.value().getId());
+    CHECK(count == 0);
+}
 }

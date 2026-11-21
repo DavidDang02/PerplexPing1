@@ -1,124 +1,222 @@
 #include "session.h"
 
-Session::Session()
-    : id(0), userId(0), startTime(Clock::now()), ended(false) {}
+#include <algorithm>
 
-Session::Session(int userId)
-    : id(0), userId(userId), startTime(Clock::now()), ended(false) {}
+Session::Session() : startTime(Clock::now()), status(SessionStatus::Live) {}
 
-Session::Session(int id, int userId)
-    : id(id), userId(userId), startTime(Clock::now()), ended(false) {}
+Session::Session(int hostId) : id(0), hostId(hostId), startTime(Clock::now()), status(SessionStatus::Live) {}
 
-Session::Session(int id, int userId, Clock::time_point startTime)
-    : id(id), userId(userId), startTime(startTime), ended(false) {}
+Session::Session(int id, int hostId) : id(id), hostId(hostId), startTime(Clock::now()), status(SessionStatus::Live) {}
 
-Session::Session(int id, int userId, Clock::time_point startTime, Clock::time_point endTime)
-    : id(id), userId(userId), startTime(startTime), endTime(endTime), ended(true) {}
+Session::Session(int id, int hostId, Clock::time_point startTime)
+    : id(id), hostId(hostId), startTime(startTime), status(SessionStatus::Live) {}
 
+Session::Session(int id, int hostId, Clock::time_point startTime, Clock::time_point endTime)
+    : id(id), hostId(hostId), startTime(startTime), endTime(endTime), status(SessionStatus::InReview) {}
+
+int Session::getId() const { return this->id; }
+void Session::setId(int id) { this->id = id; }
+
+int Session::getCourseId() const { return this->courseId; }
+void Session::setCourseId(int courseId) { this->courseId = courseId; }
+
+int Session::getHostId() const { return this->hostId; }
+
+const std::string& Session::getName() const { return this->name; }
+void Session::setName(const std::string& name) { this->name = name; }
+
+const std::string& Session::getJoinCode() const { return this->joinCode; }
+void Session::setJoinCode(const std::string& code) { this->joinCode = code; }
+
+Session::Clock::time_point Session::getStartTime() const { return this->startTime; }
+
+Session::Clock::time_point Session::getEndTime() const { return this->endTime; }
+
+bool Session::isEnded() const { return this->endTime != Clock::time_point{}; }
+bool Session::isLive() const { return !this->isEnded(); }
+
+SessionStatus Session::getStatus() const { return this->status; }
+bool Session::isInReview() const { return this->status == SessionStatus::InReview; }
+bool Session::isPublished() const { return this->status == SessionStatus::Published; }
+
+bool Session::publish(Clock::time_point when) {
+    if (this->status == SessionStatus::Live || this->status == SessionStatus::Published) {
+        return false;
+    }
+    this->publishedTime = when;
+    this->status = SessionStatus::Published;
+    return true;
+}
+
+Session::Clock::time_point Session::getPublishedTime() const { return this->publishedTime; }
 
 void Session::endSession() {
-    if (ended) {
-        return;
+    if (this->status == SessionStatus::Live) {
+        this->endTime = Clock::now();
+        this->status = SessionStatus::InReview;
     }
-    endTime = Clock::now();
-    ended = true;
 }
 
 void Session::endSession(Clock::time_point when) {
-    if (ended) {
-        return;
+    if (this->status == SessionStatus::Live) {
+        this->endTime = when;
+        this->status = SessionStatus::InReview;
     }
-    endTime = when;
-    ended = true;
 }
 
-bool Session::addInput(const SessionInput& input) {
-    if (ended) {
+long long Session::getDurationSeconds(Clock::time_point now) const {
+    if (this->isEnded()) {
+        return std::chrono::duration_cast<std::chrono::seconds>(
+            this->endTime - this->startTime).count();
+    }
+    return std::chrono::duration_cast<std::chrono::seconds>(
+        now - this->startTime).count();
+}
+
+const Recording* Session::getRecording() const {
+    return this->recording ? &this->recording.value() : nullptr;
+}
+
+void Session::setRecording(const Recording& recording) {
+    this->recording = recording;
+}
+
+void Session::clearRecording() {
+    this->recording.reset();
+}
+
+bool Session::addLostPing(const LostPing& ping) {
+    if (!this->isLive()) {
         return false;
     }
-    inputs.push_back(input);
+    this->lostPings.push_back(ping);
+    return true;
+}
+
+bool Session::addQuestion(const SessionQuestion& question) {
+    if (!this->isLive()) {
+        return false;
+    }
+    this->questions.push_back(question);
     return true;
 }
 
 bool Session::lostButtonClicked() {
-    return addInput(SessionInput(InputType::Lost, Clock::now(), ""));
+    return this->addLostPing(LostPing(Clock::now()));
 }
 
 bool Session::askQuestion(const std::string& text) {
-    if (text.empty()) {
-        return false;
+    return this->addQuestion(SessionQuestion(Clock::now(), text));
+}
+
+void Session::setLostPings(std::vector<LostPing> pings) {
+    this->lostPings = std::move(pings);
+}
+
+void Session::setQuestions(std::vector<SessionQuestion> questions) {
+    this->questions = std::move(questions);
+}
+
+void Session::upsertLostPing(const LostPing& ping) {
+    for (auto& p : this->lostPings) {
+        if (p.getId() == ping.getId()) {
+            p = ping;
+            return;
+        }
     }
-    return addInput(SessionInput(InputType::Question, Clock::now(), text));
+    this->lostPings.push_back(ping);
 }
 
-bool Session::isEnded() const {
-    return ended;
+bool Session::removeLostPing(int pingId) {
+    auto it = std::find_if(this->lostPings.begin(), this->lostPings.end(),
+                           [pingId](const LostPing& p) { return p.getId() == pingId; });
+    if (it != this->lostPings.end()) {
+        this->lostPings.erase(it);
+        return true;
+    }
+    return false;
 }
 
-int Session::getId() const {
-    return id;
+void Session::upsertQuestion(const SessionQuestion& question) {
+    for (auto& q : this->questions) {
+        if (q.getId() == question.getId()) {
+            q = question;
+            return;
+        }
+    }
+    this->questions.push_back(question);
 }
 
-void Session::setId(int id){
-   this->id = id;
-}
-int Session::getUserId() const {
-    return userId;
-}
-
-
-Session::Clock::time_point Session::getStartTime() const {
-    return startTime;
+bool Session::removeQuestion(int questionId) {
+    auto it = std::find_if(this->questions.begin(), this->questions.end(),
+                           [questionId](const SessionQuestion& q) { return q.getId() == questionId; });
+    if (it != this->questions.end()) {
+        this->questions.erase(it);
+        return true;
+    }
+    return false;
 }
 
-Session::Clock::time_point Session::getEndTime() const {
-    return endTime;
+const std::vector<LostPing>& Session::getLostPings() const {
+    return this->lostPings;
 }
 
-const std::vector<SessionInput>& Session::getInputs() const {
-    return inputs;
+const std::vector<SessionQuestion>& Session::getQuestions() const {
+    return this->questions;
+}
+
+const LostPing* Session::findLostPing(int pingId) const {
+    for (const auto& p : this->lostPings) {
+        if (p.getId() == pingId) {
+            return &p;
+        }
+    }
+    return nullptr;
+}
+
+const SessionQuestion* Session::findQuestion(int questionId) const {
+    for (const auto& q : this->questions) {
+        if (q.getId() == questionId) {
+            return &q;
+        }
+    }
+    return nullptr;
+}
+
+SessionQuestion* Session::findQuestionMutable(int questionId) {
+    for (auto& q : this->questions) {
+        if (q.getId() == questionId) {
+            return &q;
+        }
+    }
+    return nullptr;
 }
 
 int Session::getPressCount() const {
-    int count = 0;
-    for (const auto& input : inputs) {
-        if (input.getType() == InputType::Lost) {
-            ++count;
-        }
-    }
-    return count;
+    return this->lostPings.size();
 }
 
 int Session::getQuestionCount() const {
-    int count = 0;
-    for (const auto& input : inputs) {
-        if (input.getType() == InputType::Question) {
-            ++count;
-        }
-    }
-    return count;
+    return this->questions.size();
 }
 
 std::vector<Session::Clock::time_point> Session::getLostButtonTimestamps() const {
-    std::vector<Clock::time_point> timestamps;
-    for (const auto& input : inputs) {
-        if (input.getType() == InputType::Lost) {
-            timestamps.push_back(input.getTime());
-        }
+    std::vector<Clock::time_point> times;
+    for (const auto& p : this->lostPings) {
+        times.push_back(p.getTime());
     }
-    return timestamps;
+    return times;
 }
 
 std::vector<long long> Session::getPressOffsetsSeconds() const {
     std::vector<long long> offsets;
-    for (const auto& input : inputs) {
-        if (input.getType() == InputType::Lost) {
-            offsets.push_back(getOffsetSeconds(input));
-        }
+    for (const auto& p : this->lostPings) {
+        offsets.push_back(this->getOffsetSeconds(p.getTime()));
     }
     return offsets;
 }
 
-long long Session::getOffsetSeconds(const SessionInput& input) const {
-    return std::chrono::duration_cast<std::chrono::seconds>(input.getTime() - startTime).count();
+long long Session::getOffsetSeconds(Clock::time_point time) const {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+        time - this->startTime).count();
 }
