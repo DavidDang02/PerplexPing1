@@ -28,7 +28,7 @@ jobs:
           # qt6-base-dev provides Qt Widgets and the Qt SQL module, but NOT
           # the SQLite driver itself -- libqt6sql6-sqlite is what makes
           # QSqlDatabase::addDatabase("QSQLITE") actually work.
-          sudo apt-get install -y qt6-base-dev libqt6sql6-sqlite
+          sudo apt-get install -y qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite
           # Add other libraries your project needs here, for example:
           # sudo apt-get install -y libboost-all-dev
 
