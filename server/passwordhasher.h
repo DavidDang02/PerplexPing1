@@ -4,7 +4,7 @@
 
 class PasswordHasher {
 public:
-    static constexpr int kDefaultIterations = 10000;
+    static constexpr int kDefaultIterations = 1000;
     static constexpr int kTestIterations = 10;
     static constexpr int kSaltBytes = 16;
 
