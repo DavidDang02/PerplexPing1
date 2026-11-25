@@ -11,16 +11,17 @@
 #include <QHostAddress>
 #include <QJsonObject>
 #include <QObject>
-#include <QUrl>
 #include <QWebSocket>
 #include <QWebSocketServer>
 
+#include "appmodel.h"
+
 class Database;
 
-// Authentication state for one connected client.
 struct ClientState {
     bool authenticated = false;
     int userId = -1;
+    std::shared_ptr<AppModel> model;
 };
 
 class PerplexServer : public QObject {
@@ -50,7 +51,7 @@ private:
 
     void registerHandlers();
 
-    Database* db_;          // not owned
+    Database* db_;
     QWebSocketServer* server_;
     int port_;
     QHostAddress host_;
@@ -62,3 +63,6 @@ private:
     // Request type string -> handler.
     QHash<QString, Handler> handlers_;
 };
+
+// Compatibility typedef
+using SocketsServer = PerplexServer;
