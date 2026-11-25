@@ -6,13 +6,83 @@
 
 #include "perplexserver.h"
 
+#include <algorithm>
+#include <tuple>
+
+#include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QDebug>
 
 #include "database.h"
+#include "joincodes.h"
 #include "protocol.h"
+
+namespace {
+
+QString timeToIsoString(std::chrono::system_clock::time_point time) {
+    const auto secs =
+        std::chrono::duration_cast<std::chrono::seconds>(time.time_since_epoch())
+            .count();
+    return QDateTime::fromSecsSinceEpoch(secs).toUTC().toString(Qt::ISODate);
+}
+
+std::chrono::system_clock::time_point isoStringToTime(const QString& text) {
+    QDateTime parsed = QDateTime::fromString(text, Qt::ISODate);
+    if (!parsed.isValid()) {
+        return std::chrono::system_clock::now();
+    }
+    return std::chrono::system_clock::time_point(
+        std::chrono::seconds(parsed.toSecsSinceEpoch()));
+}
+
+QJsonObject sessionToM2Json(const Session& session) {
+    QJsonObject obj;
+    obj["id"] = session.getId();
+    obj["userId"] = session.getHostId();
+    obj["startTime"] = timeToIsoString(session.getStartTime());
+    if (session.isEnded()) {
+        obj["endTime"] = timeToIsoString(session.getEndTime());
+    } else {
+        obj["endTime"] = QJsonValue::Null;
+    }
+
+    struct InputItem {
+        std::chrono::system_clock::time_point time;
+        int id;
+        QString type;
+        QString text;
+    };
+
+    std::vector<InputItem> items;
+    for (const auto& ping : session.getLostPings()) {
+        items.push_back({ping.getTime(), ping.getId(), QStringLiteral("Lost"), QString()});
+    }
+    for (const auto& q : session.getQuestions()) {
+        items.push_back({q.getTime(), q.getId(), QStringLiteral("Question"),
+                         QString::fromStdString(q.getText())});
+    }
+    std::sort(items.begin(), items.end(), [](const InputItem& a, const InputItem& b) {
+        if (a.time != b.time) {
+            return a.time < b.time;
+        }
+        return a.id < b.id;
+    });
+
+    QJsonArray inputs;
+    for (const auto& item : items) {
+        QJsonObject inObj;
+        inObj["type"] = item.type;
+        inObj["time"] = timeToIsoString(item.time);
+        inObj["text"] = item.text;
+        inputs.append(inObj);
+    }
+    obj["inputs"] = inputs;
+    return obj;
+}
+
+}  // namespace
 
 PerplexServer::PerplexServer(int port, Database* db, QObject* parent,
                              const QHostAddress& host,
@@ -69,7 +139,7 @@ void PerplexServer::registerHandlers() {
         const QString password = request[Protocol::Field::kPassword].toString();
         const QString email = request.contains(Protocol::Field::kEmail)
                                   ? request[Protocol::Field::kEmail].toString()
-                                  : QStringLiteral("user@scu.edu");
+                                  : QStringLiteral("%1@scu.edu").arg(name.trimmed());
 
         Result<User> res = state.model->registerUser(name.toStdString(), password.toStdString(), email.toStdString());
         if (!res.isOk()) {
@@ -117,6 +187,170 @@ void PerplexServer::registerHandlers() {
             state.userId = -1;
             reply[Protocol::Field::kOk] = true;
         });
+
+    // ---- M2 client (ServerClient) compatibility handlers ----
+
+    handlers_.insert(QStringLiteral("createSession"),
+        [this](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
+            if (!state.authenticated || state.userId <= 0) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                return;
+            }
+
+            int courseId = 0;
+            Result<std::vector<Course>> courses = db_->listCoursesForUser(state.userId);
+            if (courses.isOk()) {
+                for (const auto& c : courses.value) {
+                    if (c.getEducatorId() == state.userId) {
+                        courseId = c.getId();
+                        break;
+                    }
+                }
+            }
+            if (courseId == 0) {
+                Result<Course> createdCourse = db_->createCourse(
+                    "Default Course", JoinCodes::generateCourseCode(),
+                    false, true, state.userId, std::chrono::system_clock::now());
+                if (!createdCourse.isOk()) {
+                    reply[Protocol::Field::kOk] = false;
+                    reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(createdCourse.error));
+                    return;
+                }
+                courseId = createdCourse.value.getId();
+            }
+
+            Result<Session> created = db_->createSession(
+                courseId, state.userId, "Session",
+                JoinCodes::generateSessionCode(), std::chrono::system_clock::now());
+            if (!created.isOk()) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(created.error));
+                return;
+            }
+
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = sessionToM2Json(created.value);
+        });
+
+    handlers_.insert(QStringLiteral("saveInput"),
+        [this](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!state.authenticated || state.userId <= 0) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                return;
+            }
+
+            const int sessionId = request["sessionId"].toInt(0);
+            const QJsonObject inputObj = request["input"].toObject();
+            const QString type = inputObj["type"].toString();
+            const auto time = isoStringToTime(inputObj["time"].toString());
+
+            QJsonObject data;
+            if (type == QStringLiteral("Lost")) {
+                Result<LostPing> res = db_->addLostPing(sessionId, state.userId, time);
+                if (!res.isOk()) {
+                    reply[Protocol::Field::kOk] = false;
+                    reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                    return;
+                }
+                data["inputId"] = res.value.getId();
+            } else {
+                const std::string text = inputObj["text"].toString().toStdString();
+                Result<SessionQuestion> res = db_->addQuestion(sessionId, state.userId, time, text);
+                if (!res.isOk()) {
+                    reply[Protocol::Field::kOk] = false;
+                    reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                    return;
+                }
+                data["inputId"] = res.value.getId();
+            }
+
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = data;
+        });
+
+    handlers_.insert(QStringLiteral("saveSessionEnd"),
+        [this](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!state.authenticated || state.userId <= 0) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                return;
+            }
+
+            const int sessionId = request["sessionId"].toInt(0);
+            const auto endTime = isoStringToTime(request["endTime"].toString());
+            Result<bool> res = db_->setSessionEnd(sessionId, endTime);
+            if (!res.isOk()) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+        });
+
+    handlers_.insert(QStringLiteral("loadSession"),
+        [this](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!state.authenticated || state.userId <= 0) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                return;
+            }
+
+            const int sessionId = request["sessionId"].toInt(0);
+            Result<Session> res = db_->loadSession(sessionId);
+            if (!res.isOk()) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = sessionToM2Json(res.value);
+        });
+
+    handlers_.insert(QStringLiteral("listSessionsForUser"),
+        [this](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
+            if (!state.authenticated || state.userId <= 0) {
+                reply[Protocol::Field::kOk] = false;
+                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                return;
+            }
+
+            std::vector<Session> sessions;
+            Result<std::vector<Course>> courses = db_->listCoursesForUser(state.userId);
+            if (courses.isOk()) {
+                for (const auto& c : courses.value) {
+                    if (c.getEducatorId() != state.userId) {
+                        continue;
+                    }
+                    Result<std::vector<SessionSummary>> summaries = db_->listSessionsForCourse(c.getId());
+                    if (!summaries.isOk()) {
+                        continue;
+                    }
+                    for (const auto& summary : summaries.value) {
+                        Result<Session> loaded = db_->loadSession(summary.id);
+                        if (loaded.isOk()) {
+                            sessions.push_back(std::move(loaded.value));
+                        }
+                    }
+                }
+            }
+
+            std::sort(sessions.begin(), sessions.end(), [](const Session& a, const Session& b) {
+                return a.getId() > b.getId();
+            });
+
+            QJsonArray arr;
+            for (const auto& s : sessions) {
+                arr.append(sessionToM2Json(s));
+            }
+            QJsonObject data;
+            data["sessions"] = arr;
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = data;
+        });
+
+    // ---- Contract v2 handlers ----
 
     handlers_.insert(Protocol::Request::kCreateCourse,
         [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
