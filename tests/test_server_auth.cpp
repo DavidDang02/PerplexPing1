@@ -1,6 +1,7 @@
 #include "doctest.h"
 
 #include <QEventLoop>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
@@ -10,6 +11,7 @@
 
 #include "database.h"
 #include "error.h"
+#include "passwordhasher.h"
 #include "perplexserver.h"
 #include "protocol.h"
 
@@ -17,7 +19,8 @@ TEST_CASE("Server: register then login round-trips over WebSocket with password 
     Database db(":memory:");
     REQUIRE(db.open().isOk());
 
-    PerplexServer server(0, &db);
+    PerplexServer server(0, &db, nullptr, QHostAddress::LocalHost,
+                         PasswordHasher::kTestIterations);
     REQUIRE(server.listen());
     const int port = server.port();
     REQUIRE(port > 0);
@@ -39,8 +42,9 @@ TEST_CASE("Server: register then login round-trips over WebSocket with password 
                      });
 
     QTimer::singleShot(5000, &connectLoop, &QEventLoop::quit);
-    socket.open(QUrl(QStringLiteral("ws://localhost:%1").arg(port)));
+    socket.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(port)));
     connectLoop.exec();
+    INFO("socket error: ", socket.errorString().toStdString());
     REQUIRE(socket.state() == QAbstractSocket::ConnectedState);
 
     auto nextMessage = [&]() -> QJsonObject {
@@ -59,6 +63,7 @@ TEST_CASE("Server: register then login round-trips over WebSocket with password 
 
     // Consume initial hello message from server
     const QJsonObject hello = nextMessage();
+    INFO("hello: ", QJsonDocument(hello).toJson(QJsonDocument::Compact).toStdString());
     REQUIRE(hello[Protocol::Field::kType].toString() == Protocol::Reply::kHello);
 
     // 1. Create an account with a valid school email
@@ -69,6 +74,7 @@ TEST_CASE("Server: register then login round-trips over WebSocket with password 
     socket.sendTextMessage(Protocol::encode(regReq));
 
     const QJsonObject regResp = nextMessage();
+    INFO("regResp: ", QJsonDocument(regResp).toJson(QJsonDocument::Compact).toStdString());
     REQUIRE(regResp[Protocol::Field::kOk].toBool());
     const QJsonObject regData = regResp[Protocol::Field::kData].toObject();
     CHECK(regData[Protocol::Field::kId].toInt() > 0);
@@ -81,6 +87,7 @@ TEST_CASE("Server: register then login round-trips over WebSocket with password 
     socket.sendTextMessage(Protocol::encode(loginReq));
 
     const QJsonObject loginResp = nextMessage();
+    INFO("loginResp: ", QJsonDocument(loginResp).toJson(QJsonDocument::Compact).toStdString());
     REQUIRE(loginResp[Protocol::Field::kOk].toBool());
     CHECK(loginResp[Protocol::Field::kData].toObject()[Protocol::Field::kName].toString() ==
           QStringLiteral("ana"));
@@ -92,6 +99,7 @@ TEST_CASE("Server: register then login round-trips over WebSocket with password 
     socket.sendTextMessage(Protocol::encode(badLoginReq));
 
     const QJsonObject badLoginResp = nextMessage();
+    INFO("badLoginResp: ", QJsonDocument(badLoginResp).toJson(QJsonDocument::Compact).toStdString());
     CHECK_FALSE(badLoginResp[Protocol::Field::kOk].toBool());
     const QString errorCode = badLoginResp[Protocol::Reply::kError].toString();
     CHECK(getErrorFromCode(errorCode.toStdString()) == Error::WrongLogin);

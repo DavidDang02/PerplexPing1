@@ -15,6 +15,7 @@
 #include <QWebSocketServer>
 
 #include "appmodel.h"
+#include "passwordhasher.h"
 
 class Database;
 
@@ -29,7 +30,8 @@ class PerplexServer : public QObject {
 public:
     explicit PerplexServer(int port, Database* db,
                            QObject* parent = nullptr,
-                           const QHostAddress& host = QHostAddress::LocalHost);
+                           const QHostAddress& host = QHostAddress::LocalHost,
+                           int passwordIterations = PasswordHasher::kDefaultIterations);
     ~PerplexServer() override;
 
     bool listen();
@@ -55,6 +57,7 @@ private:
     QWebSocketServer* server_;
     int port_;
     QHostAddress host_;
+    int passwordIterations_;
     QString lastError_;
 
     // Authentication state keyed by socket pointer.

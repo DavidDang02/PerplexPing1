@@ -15,8 +15,13 @@
 #include "protocol.h"
 
 PerplexServer::PerplexServer(int port, Database* db, QObject* parent,
-                             const QHostAddress& host) :
-    QObject(parent), db_(db), port_(port), host_(host) {
+                             const QHostAddress& host,
+                             int passwordIterations) :
+    QObject(parent),
+    db_(db),
+    port_(port),
+    host_(host),
+    passwordIterations_(passwordIterations) {
     server_ = new QWebSocketServer(QStringLiteral("PerplexPingServer"),
                                    QWebSocketServer::NonSecureMode, this);
 
@@ -311,7 +316,8 @@ void PerplexServer::onNewConnection() {
             &PerplexServer::onClientDisconnected);
 
     ClientState state;
-    state.model = std::make_shared<AppModel>(db_);
+    state.model = std::make_shared<AppModel>(
+        db_, [] { return AppModel::Clock::now(); }, passwordIterations_);
     clients_[client] = std::move(state);
 
     // Send hello on connect (CONTRACT.md 6)
