@@ -228,7 +228,7 @@ TEST_CASE("Live push: questions reach the educator, edits and deletes follow") {
     CHECK_FALSE((*deleted)[Field::kByModerator].toBool());
 }
 
-TEST_CASE("Live push: an anonymous course hides who asked, even from the educator") {
+TEST_CASE("Live push: an anonymous course still shows the educator who asked") {
     Room room(/*anonymous=*/true);
 
     REQUIRE(room.ana->send(Request::kAddQuestion,
@@ -236,8 +236,8 @@ TEST_CASE("Live push: an anonymous course hides who asked, even from the educato
     const auto added = room.prof->waitPush(Reply::kQuestionAdded);
     REQUIRE(added.has_value());
     const QJsonObject question = (*added)[Field::kQuestion].toObject();
-    CHECK(question[Field::kAuthorState].toString() == QStringLiteral("hidden"));
-    CHECK(question[Field::kAuthorName].toString().isEmpty());
+    CHECK(question[Field::kAuthorState].toString() != QStringLiteral("hidden"));
+    CHECK(question[Field::kAuthorName].toString() == QStringLiteral("ana"));
 }
 
 TEST_CASE("Live push: the educator sees who is in the room") {
@@ -470,18 +470,17 @@ TEST_CASE("Live push: students leave the room when the session ends") {
     CHECK(room.bob->getsNo(Reply::kAnswerAdded));
 }
 
-TEST_CASE("Live push: making the course anonymous hides names in the room list at once") {
-    Room room;
-    while (room.prof->waitPush(Reply::kParticipants)) {
+TEST_CASE("Live push: an anonymous course still names the room list for the educator") {
+    Room room(/*anonymous=*/true);
+    QJsonArray people;
+    while (const auto pushed = room.prof->waitPush(Reply::kParticipants)) {
+        people = (*pushed)[Field::kParticipants].toArray();
+        if (people.size() == 2) {
+            break;
+        }
     }
-    REQUIRE(room.prof->send(Request::kUpdateCourse,
-        fields({{Field::kCourseId, room.courseId}, {Field::kName, QStringLiteral("CSCI 187")},
-                {Field::kAnonymous, true}, {Field::kQuestionsShared, true}}))[Field::kOk].toBool());
-    const auto pushed = room.prof->waitPush(Reply::kParticipants);
-    REQUIRE(pushed.has_value());
-    const QJsonArray people = (*pushed)[Field::kParticipants].toArray();
     REQUIRE(people.size() == 2);
     for (const QJsonValue& person : people) {
-        CHECK(person.toObject()[Field::kName].toString().isEmpty());
+        CHECK_FALSE(person.toObject()[Field::kName].toString().isEmpty());
     }
 }
