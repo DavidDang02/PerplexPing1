@@ -4,11 +4,14 @@
 // server. Uses Qt Core only (QJson...), no sockets.
 //
 // Every message is one JSON object with a "type":
-//     app -> server   {"type":"addQuestion","sessionId":7,"text":"why?"}
-//     server -> app   {"type":"inputAdded","sessionId":7,"input":{...}}
-// The full catalogue (fields, who may send, who receives) is CONTRACT.md
-// section 6. This header is its code form: use these constants, never a
-// string typed by hand, so a typo is a compile error.
+//     request  app -> server   {"id":3,"type":"addQuestion","sessionId":7,"text":"why?"}
+//     reply    server -> app   {"id":3,"type":"addQuestion","ok":true,"data":{...question...}}
+//                              {"id":3,"type":"addQuestion","ok":false,"error":"QuestionTooLong","code":"QuestionTooLong"}
+//     push     server -> app   {"type":"questionAdded","sessionId":7,"question":{...}}   (never has "ok")
+// A reply's type is the REQUEST's type; the Reply:: names below are the
+// pushes (plus hello/error). The full catalogue is CONTRACT.md section 6.
+// This header is its code form: use these constants, never a string typed
+// by hand, so a typo is a compile error.
 //
 // JSON conventions:
 //   * ids are integers; 0 means "none / hidden"
@@ -217,6 +220,12 @@ QJsonObject toJson(const Participant& participant);
 QJsonObject toJson(const Course& course);
 QJsonObject toJson(const SessionSummary& summary);
 QJsonObject toJson(const Session& session);  // details + recording + pings + questions + answers
+// Details + recording only, with no lostCount/questionCount/lostPings/
+// questions keys at all. Used for replies and pushes whose session was not
+// loaded with its items (end, publish, rename, delete, recording changes),
+// so the app keeps the items it has instead of wiping them. The app tells
+// the two apart by whether "lostPings" is present.
+QJsonObject toDetailsJson(const Session& session);
 QJsonObject toJson(const LostPing& ping);
 QJsonObject toJson(const SessionQuestion& question);
 QJsonObject toJson(const Answer& answer);

@@ -179,3 +179,18 @@ TEST_CASE("Protocol: junk decodes to zero values, never throws") {
     CHECK(empty.getLostPings().empty());
     CHECK(getError(makeError(Request::kAddLost, Error::SessionEnded)) == Error::SessionEnded);
 }
+
+TEST_CASE("Protocol: details-only session JSON leaves out items and counts") {
+    Session ended(9, 1, at(1000000), at(4000000));
+    ended.setName("Lecture 1");
+    const QJsonObject json = toDetailsJson(ended);
+    CHECK(json[Field::kName].toString() == "Lecture 1");
+    CHECK(json.contains(Field::kEndTime));
+    // No 0 counts or empty lists that would look like an empty session.
+    CHECK_FALSE(json.contains(Field::kLostPings));
+    CHECK_FALSE(json.contains(Field::kQuestions));
+    CHECK_FALSE(json.contains(Field::kLostCount));
+    CHECK_FALSE(json.contains(Field::kQuestionCount));
+    // The full form always has them.
+    CHECK(toJson(ended).contains(Field::kLostPings));
+}

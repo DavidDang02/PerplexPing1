@@ -79,6 +79,17 @@ QJsonArray toJson(const std::vector<Course>& courses) {
 
 // ---- Session ----
 
+QJsonObject toDetailsJson(const Session& session) {
+    QJsonObject obj = toJson(session);
+    // Items were not loaded, so leave them out instead of sending 0 and []
+    // (which would look like an empty session to the app).
+    obj.remove(Field::kLostCount);
+    obj.remove(Field::kQuestionCount);
+    obj.remove(Field::kLostPings);
+    obj.remove(Field::kQuestions);
+    return obj;
+}
+
 QJsonObject toJson(const Session& session) {
     QJsonObject obj;
     obj[Field::kId] = session.getId();

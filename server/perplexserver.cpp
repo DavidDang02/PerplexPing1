@@ -160,6 +160,8 @@ QJsonObject makeQuestionMessage(const QString& type, const QuestionChange& chang
 bool hasRequiredFields(const QString& type, const QJsonObject& request) {
     using namespace Protocol;
     static const QHash<QString, QList<QPair<QString, char>>> required = {
+        {Request::kRegister, {{Field::kName, 's'}, {Field::kPassword, 's'}, {Field::kEmail, 's'}}},
+        {Request::kLogin, {{Field::kName, 's'}, {Field::kPassword, 's'}}},
         {Request::kCreateCourse, {{Field::kName, 's'}}},
         {Request::kJoinCourse, {{Field::kJoinCode, 's'}}},
         {Request::kGetCourse, {{Field::kCourseId, 'i'}}},
@@ -255,9 +257,8 @@ void PerplexServer::registerHandlers() {
                                  const QJsonObject& request, QJsonObject& reply) {
         const QString name = request[Protocol::Field::kName].toString();
         const QString password = request[Protocol::Field::kPassword].toString();
-        const QString email = request.contains(Protocol::Field::kEmail)
-                                  ? request[Protocol::Field::kEmail].toString()
-                                  : QStringLiteral("%1@scu.edu").arg(name.trimmed());
+        // Email is required (U6): no made-up name@scu.edu when it's missing.
+        const QString email = request[Protocol::Field::kEmail].toString();
 
         Result<User> res = state.model->registerUser(name.toStdString(), password.toStdString(), email.toStdString());
         if (!res.isOk()) {
@@ -582,12 +583,12 @@ void PerplexServer::registerHandlers() {
                     }
                     QJsonObject message = Protocol::makeMessage(Protocol::Reply::kSessionEnded);
                     message[Protocol::Field::kSessionId] = ended.getId();
-                    message[Protocol::Field::kSession] = Protocol::toJson(details);
+                    message[Protocol::Field::kSession] = Protocol::toDetailsJson(details);
                     return message;
                 });
             pushCourseChanged(client, res.value.getCourseId());
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+            reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kAddLost,
@@ -856,7 +857,7 @@ void PerplexServer::registerHandlers() {
             }
             pushCourseChanged(client, res.value.getCourseId());  // students can open it now
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+            reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kRenameSession,
@@ -884,7 +885,7 @@ void PerplexServer::registerHandlers() {
                 }
             }
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+            reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kDeleteSession,
@@ -990,7 +991,7 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+            reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kRemoveRecording,
@@ -1006,7 +1007,7 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+            reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
         });
 
     // The app asks Panopto for the course folder's recordings and sends them
@@ -1031,7 +1032,7 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+            reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
         });
 
     // The app left the session page. Nothing changes in the database.

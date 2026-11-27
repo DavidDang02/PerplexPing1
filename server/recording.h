@@ -68,7 +68,8 @@ public:
                                Clock::time_point sessionStart, Clock::time_point sessionEnd);
 
     // Offset for a session that started at sessionStart, in a recording that
-    // started at recordingStart (whole seconds).
+    // started at recordingStart (whole seconds). Not limited: check it with
+    // Validation::checkRecordingOffset before saving.
     static long long getOffsetBetween(Clock::time_point recordingStart,
                                       Clock::time_point sessionStart);
 

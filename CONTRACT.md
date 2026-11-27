@@ -1,6 +1,6 @@
 # PerplexPing Final: Contract
 
-The shared interface every layer codes against. If your code matches this file and the headers in `headers/`, it will plug into everyone else's. Anything not listed here (private helpers, widget layout, how a page looks) is up to whoever owns that part.
+The shared interface every layer codes against. If your code matches this file and the headers in `server/`, it will plug into everyone else's. Anything not listed here (private helpers, widget layout, how a page looks) is up to whoever owns that part.
 
 Built on top of master (the M2 prototype). Keep the M2 tests passing.
 
@@ -14,7 +14,7 @@ Built on top of master (the M2 prototype). Keep the M2 tests passing.
 | Controller | `ServerClient` (WebSocket in the app), `AppController` (view signal → request, reply → view), `PanoptoClient` | their `.h/.cpp`, `tests/test_protocol.cpp` |
 | View | `MainWindow` and the pages in section 7 | each page's `.h/.cpp` |
 
-Shared by everyone (in `headers/`, don't change without telling the team): `schema.sql`, `database.h`, `appmodel.h`, `protocol.h`, `error.h`, `validation.h`, and the data classes `user.h`, `course.h`, `session.h`, `lostping.h`, `sessionquestion.h`, `answer.h`, `recording.h`.
+Shared by everyone (in `server/`, compiled into both the app and the server; don't change without telling the team): `schema.sql`, `database.h`, `appmodel.h`, `protocol.h`, `error.h`, `validation.h`, and the data classes `user.h`, `course.h`, `session.h`, `lostping.h`, `sessionquestion.h`, `answer.h`, `recording.h`.
 
 ## 2. The flow
 
@@ -56,7 +56,7 @@ Sessions: `live → in_review → published`
 
 ## 4. Database
 
-Tables (full SQL in `headers/schema.sql`, `PRAGMA user_version = 2`):
+Tables (full SQL in `server/schema.sql`, `PRAGMA user_version = 2`):
 
 | Table | Key columns |
 |---|---|
@@ -70,7 +70,7 @@ Tables (full SQL in `headers/schema.sql`, `PRAGMA user_version = 2`):
 
 Relationships: User 1:N Courses as educator (educator_id). Users M:N Courses as students through CourseMembers. Course 1:N Sessions. Session 1:N SessionLostPings. Session 1:N SessionQuestions. SessionQuestion 1:N Answers. User 1:N LostPings, Questions, Answers, hosted Sessions. (M2's single SessionInputs table was split on Nov 11: a Lost press has no text, edits or answers, so an Answer can only point at a question.)
 
-`Database` methods (signatures in `headers/database.h`):
+`Database` methods (signatures in `server/database.h`):
 - Users: `createUser`, `getUser`, `findUserByName`, `findUserByEmail`, `getCredentials`, `setPassword`, `setEmail`, `deleteUser`
 - Courses: `createCourse`, `getCourse`, `findCourseByJoinCode`, `listCoursesForUser`, `updateCourse`, `deleteCourse`, `addStudent`, `getRole`
 - Sessions: `createSession`, `getSession`, `findLiveSessionByJoinCode`, `loadSession`, `listSessionsForCourse`, `setSessionEnd`, `setSessionPublished`, `renameSession`, `deleteSession`, `setRecording`, `clearRecording`
@@ -89,7 +89,7 @@ Rules for `database.cpp`:
 
 ## 5. AppModel
 
-Every call returns `Result<T>` (a value or an `Error` from `error.h`). Signatures in `headers/appmodel.h`.
+Every call returns `Result<T>` (a value or an `Error` from `error.h`). Signatures in `server/appmodel.h`.
 
 | Area | Calls |
 |---|---|
@@ -107,27 +107,39 @@ Stretch (only if time): `deleteCourse`.
 
 ## 6. Messages (app ⇄ server)
 
-One JSON object per WebSocket message, always with `"type"`. Use the constants in `headers/protocol.h`, never a typed string. Ids are integers, times are ms since 1970 UTC, missing optional fields are left out.
+One JSON object per WebSocket message, always with `"type"`. Use the constants in `server/protocol.h`, never a typed string. Ids are integers, times are ms since 1970 UTC (always whole seconds), missing optional fields are left out.
 
-Each request maps one-to-one to an `AppModel` call of the same name. The server answers the sender with the reply, or `error` with a `code` (the `Error` name).
+**Replies.** Each request maps one-to-one to an `AppModel` call of the same name. The sender always gets exactly one reply:
 
-| Request | Reply to sender | Broadcast to others |
+```
+{"id": <copied from the request, if sent>, "type": "<the request's type>", "ok": true,  "data": {...}}
+{"id": ...,                                "type": "<the request's type>", "ok": false, "error": "<Error name>", "code": "<Error name>"}
+```
+
+The app matches a reply to its request by `id` (or by `type` if it sends one request at a time). Text that is not one JSON object, or is over `kMaxMessageBytes`, gets `{"type":"error","ok":false,"code":"BadRequest"}`. A missing or wrongly typed field is `BadRequest` before any rule runs.
+
+**Pushes.** Everyone else who may see the change gets a push. Pushes never have `"ok"`, which is how the app tells them from replies. Each recipient's copy goes through `Visibility` for that recipient.
+
+**Session JSON comes in two forms.** Full (`openSession`, `joinSession`, `startSession`): details, recording, the pings and questions this viewer may see, with answers and counts. Details only (end, publish, rename, recording changes, the `sessionEnded` push): no `lostPings`, `questions`, `lostCount` or `questionCount` keys at all, so the app keeps the items it already has.
+
+| Request | `data` in the reply | Push to others |
 |---|---|---|
-| register, login | auth | – |
-| logout | loggedOut | – |
-| changePassword, updateEmail, deleteAccount | passwordChanged / profileUpdated / loggedOut | – |
-| listCourses, getCourse | courses / courseDetail | – |
-| createCourse, joinCourse, updateCourse | courseCreated / courseJoined / courseUpdated | courseChanged (course members) |
-| startSession | sessionOpened | courseChanged |
-| joinSession, openSession | sessionOpened | participants (educator) |
-| closeSession (leave) | sessionClosed | participants |
-| endSession | sessionEnded | sessionEnded (session), courseChanged |
-| publishSession | sessionPublished | courseChanged |
-| renameSession, deleteSession | sessionRenamed / sessionDeleted | same to course |
-| addLost, deleteLost | lostAdded / lostDeleted | same, only to whoever may see it (educator gets counts) |
-| addQuestion, editQuestion, deleteQuestion | questionAdded / questionUpdated / questionDeleted | same, only to whoever may see it |
-| addAnswer, editAnswer, deleteAnswer | answerAdded / answerUpdated / answerDeleted | same to viewers |
-| attachRecording, removeRecording, checkRecording | recordingAttached / recordingRemoved | – |
+| register, login | user | – |
+| logout | – | – |
+| changePassword, updateEmail, deleteAccount | – / user / – | deleteAccount: `loggedOut` to the user's other apps |
+| listCourses, getCourse | `{courses}` / course + `sessions` (summaries) | – |
+| createCourse, joinCourse, updateCourse, deleteCourse | course / course / course / – | `courseChanged` / `courseDeleted` (course members) |
+| startSession | full session | `courseChanged` |
+| joinSession, openSession | full session | `participants` (educator) |
+| closeSession (leave) | – | `participants` |
+| endSession | details | `sessionEnded` (room), `courseChanged` |
+| publishSession | details | `courseChanged` |
+| renameSession, deleteSession | details | `sessionRenamed` / `sessionDeleted` (course) |
+| addLost, deleteLost | ping | `lostAdded` / `lostDeleted`, only to whoever may see it (educator gets every ping) |
+| addQuestion, editQuestion, deleteQuestion | question | `questionAdded` / `questionUpdated` / `questionDeleted`, only to whoever may see it |
+| addAnswer, editAnswer, deleteAnswer | the whole question with its answers | `answerAdded` / `answerUpdated` / `answerDeleted` (whole question) |
+| attachRecording, removeRecording, checkRecording | details (with recording) | – |
+| linkPanoptoFolder | course | `courseChanged` |
 
 On connect the server sends `hello` with the protocol version.
 

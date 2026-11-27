@@ -8,8 +8,8 @@ bool Permissions::canStartSession(const Viewer& viewer) {
     return viewer.role == CourseRole::Educator;
 }
 
-bool Permissions::canEndSession(const Viewer& viewer) {
-    return viewer.role == CourseRole::Educator;
+bool Permissions::canEndSession(const Viewer& viewer, const Session& session) {
+    return viewer.role == CourseRole::Educator && session.isLive();
 }
 
 bool Permissions::canPublishSession(const Viewer& viewer, const Session& session) {
@@ -20,8 +20,8 @@ bool Permissions::canRenameSession(const Viewer& viewer) {
     return viewer.role == CourseRole::Educator;
 }
 
-bool Permissions::canDeleteSession(const Viewer& viewer) {
-    return viewer.role == CourseRole::Educator;
+bool Permissions::canDeleteSession(const Viewer& viewer, const Session& session) {
+    return viewer.role == CourseRole::Educator && !session.isLive();  // S9: end it first
 }
 
 bool Permissions::canOpenSession(const Viewer& viewer, const Session& session) {
@@ -72,7 +72,9 @@ bool Permissions::canEditAnswer(const Viewer& viewer, const Answer& answer) {
 }
 
 bool Permissions::canDeleteAnswer(const Viewer& viewer, const Answer& answer) {
-    return answer.isBy(viewer.userId);
+    // The author, or the course's educator as moderation (A7). Answers only
+    // exist once the session has ended.
+    return answer.isBy(viewer.userId) || viewer.role == CourseRole::Educator;
 }
 
 bool Permissions::canManageRecording(const Viewer& viewer, const Session& session) {

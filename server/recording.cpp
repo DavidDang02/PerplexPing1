@@ -84,12 +84,11 @@ int Recording::findOverlapping(const std::vector<RecordingCandidate>& candidates
 long long Recording::getOffsetBetween(
     std::chrono::system_clock::time_point recordingStart,
     std::chrono::system_clock::time_point sessionStart) {
+    // The raw difference; the caller checks it against kMaxOffsetSeconds
+    // (Validation::checkRecordingOffset) so a bad match is an error, never
+    // a silent 0 that sends every jump to the wrong place.
     auto diff = sessionStart - recordingStart;
-    long long offset = std::chrono::duration_cast<std::chrono::seconds>(diff).count();
-    if (offset < -kMaxOffsetSeconds || offset > kMaxOffsetSeconds) {
-        return 0;
-    }
-    return offset;
+    return std::chrono::duration_cast<std::chrono::seconds>(diff).count();
 }
 
 bool Recording::parseTime(const std::string& text, long long& seconds) {

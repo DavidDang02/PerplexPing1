@@ -132,3 +132,41 @@ TEST_CASE("R2/R6: auto-match checks the candidate's link like a pasted one") {
     REQUIRE(matched.value.getRecording() != nullptr);
     CHECK(matched.value.getRecording()->getOffsetSeconds() == 120);
 }
+
+TEST_CASE("S9: a live session cannot be deleted until it is ended") {
+    Class c;
+    CHECK(c.prof.deleteSession(c.sessionId).error == Error::SessionNotEnded);
+    CHECK(c.db.getSession(c.sessionId).isOk());
+    c.seconds += 60;
+    REQUIRE(c.prof.endSession(c.sessionId).isOk());
+    CHECK(c.prof.deleteSession(c.sessionId).isOk());
+    CHECK_FALSE(c.db.getSession(c.sessionId).isOk());
+}
+
+TEST_CASE("R3/R6: an auto-match more than a day off is an error, not a silent 0") {
+    Class c;
+    c.seconds += 3600;
+    REQUIRE(c.prof.endSession(c.sessionId).isOk());
+    // A "recording" that started two days before class and runs past it:
+    // it overlaps, but the offset would be about +48 h.
+    RecordingCandidate far;
+    far.viewerUrl = "https://scu.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=abc";
+    far.start = Clock::time_point(std::chrono::seconds(1700000000 - 2 * 24 * 3600));
+    far.durationSeconds = 3 * 24 * 3600;
+    CHECK(c.prof.matchRecording(c.sessionId, {far}).error == Error::RecordingOffsetInvalid);
+    CHECK(c.db.getSession(c.sessionId).value.getRecording() == nullptr);
+}
+
+TEST_CASE("A7: the educator can remove a student's answer; classmates cannot") {
+    Class c;
+    const int q = c.ask(c.ana, "why?");
+    c.endAndPublish();
+    const auto rude = c.bob.addAnswer(q, "rude answer");
+    REQUIRE(rude.isOk());
+    const int answerId = rude.value.answerId;
+    CHECK(c.ana.deleteAnswer(answerId).error == Error::NotYourAnswer);
+    const auto removed = c.prof.deleteAnswer(answerId);
+    REQUIRE(removed.isOk());
+    CHECK(removed.value.byModerator);
+    CHECK(removed.value.question.getAnswers().empty());
+}

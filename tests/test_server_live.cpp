@@ -414,6 +414,13 @@ TEST_CASE("Server routes: malformed requests get BadRequest, never a crash or si
     CHECK(errorOf(badToggle) == Error::BadRequest);
     // Missing text on a question.
     CHECK(errorOf(room.ana->send(Request::kAddQuestion, fields({{Field::kSessionId, room.sessionId}}))) == Error::BadRequest);
+    // Sign-up without an email is refused; no name@scu.edu is made up (U6).
+    FakeApp carl(room.server->port());
+    CHECK(errorOf(carl.send(Request::kRegister, fields({{Field::kName, QStringLiteral("carl")},
+                                                       {Field::kPassword, QStringLiteral("password123")}}))) == Error::BadRequest);
+    CHECK(errorOf(carl.send(Request::kRegister, fields({{Field::kName, QStringLiteral("carl")},
+                                                       {Field::kPassword, QStringLiteral("password123")},
+                                                       {Field::kEmail, QStringLiteral("")}}))) == Error::EmptyEmail);
     // The connection still works afterwards.
     CHECK(room.ana->send(Request::kAddLost, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
 }

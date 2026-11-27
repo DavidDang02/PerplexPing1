@@ -58,7 +58,7 @@ enum class Error {
     NoSuchSessionCode,    // unknown code, or that session has ended (S5)
     CourseHasLiveSession, // S3
     SessionEnded,         // I2, I6 (freeze), S7
-    SessionNotEnded,      // still live: A1 (answer), I7 (moderate), R1 (recording), S11 (publish)
+    SessionNotEnded,      // still live: A1 (answer), I7 (moderate), R1 (recording), S9 (delete), S11 (publish)
     SessionNotPublished,  // S12: a student asked for a session that is still in review
     SessionAlreadyPublished,  // S11
 
