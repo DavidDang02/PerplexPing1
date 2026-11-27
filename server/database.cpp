@@ -251,7 +251,7 @@ int Database::countLiveSessionsHostedBy(int userId) {
 SELECT COUNT(*) FROM Sessions WHERE host_id = :id AND end_date IS NULL;)sql");
     query.bindValue(":id", userId);
     if (!query.exec() || !query.next()) {
-        return 0;
+        return -1;  // unknown: the caller refuses rather than guessing 0
     }
     return query.value(0).toInt();
 }
@@ -935,6 +935,8 @@ Result<LostPing> Database::addLostPing(int sessionId, int userId, Clock::time_po
                   << insert.lastError().text().toStdString() << std::endl;
         return Result<LostPing>(Error::StorageError);
     }
+    auto& last = lastLostTimes[{sessionId, userId}];
+    last = std::max(last, time);
     // Read it back so the author's name (and byEducator) come from the
     // same parser as every other load.
     return getLostPing(insert.lastInsertId().toInt());
@@ -972,10 +974,15 @@ Result<std::optional<std::chrono::system_clock::time_point>> Database::getLastLo
     if (!query.exec() || !query.next()) {
         return Result<std::optional<Clock::time_point>>(Error::StorageError);
     }
-    if (query.value(0).isNull()) {
-        return Result<std::optional<Clock::time_point>>(std::nullopt);
+    std::optional<Clock::time_point> latest;
+    if (!query.value(0).isNull()) {
+        latest = convertStringToTime(query.value(0).toString().toStdString());
     }
-    return Result<std::optional<Clock::time_point>>(convertStringToTime(query.value(0).toString().toStdString()));
+    const auto remembered = lastLostTimes.find({sessionId, userId});
+    if (remembered != lastLostTimes.end() && (!latest || remembered->second > *latest)) {
+        latest = remembered->second;
+    }
+    return Result<std::optional<Clock::time_point>>(latest);
 }
 
 Result<bool> Database::deleteLostPing(int pingId) {

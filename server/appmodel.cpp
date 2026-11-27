@@ -74,6 +74,9 @@ Result<User> AppModel::logIn(const std::string& name, const std::string& passwor
 
     Result<User> found = db->findUserByName(trimmedName);
     if (!found.isOk()) {
+        // Hash anyway, so an unknown name takes as long as a wrong password
+        // and the timing doesn't tell whether the name exists (U5).
+        PasswordHasher::hashPassword(password, PasswordHasher::generateSaltHex(), passwordIterations);
         return Error::WrongLogin;
     }
 
@@ -171,7 +174,11 @@ Error AppModel::deleteAccount(const std::string& password) {
         return Error::WrongPassword;
     }
 
-    if (db->countLiveSessionsHostedBy(currentUser->getId()) > 0) {
+    const int hosting = db->countLiveSessionsHostedBy(currentUser->getId());
+    if (hosting < 0) {
+        return Error::StorageError;
+    }
+    if (hosting > 0) {
         return Error::HostingLiveSession;
     }
 
@@ -215,8 +222,9 @@ Result<Course> AppModel::joinCourse(const std::string& joinCode) {
         return Error::NoSuchCourseCode;
     }
 
-    if (found.value.getRole() == CourseRole::None) {
-        db->addStudent(found.value.getId(), currentUser->getId(), getNow());
+    if (found.value.getRole() == CourseRole::None &&
+        !db->addStudent(found.value.getId(), currentUser->getId(), getNow()).isOk()) {
+        return Error::StorageError;
     }
 
     Result<Course> courseRes = db->getCourse(found.value.getId(), currentUser->getId());
@@ -423,7 +431,9 @@ Result<OpenedSession> AppModel::joinSession(const std::string& joinCode) {
     CourseRole role = db->getRole(sRes.value.getCourseId(), currentUser->getId());
     bool newlyEnrolled = false;
     if (role == CourseRole::None) {
-        db->addStudent(sRes.value.getCourseId(), currentUser->getId(), getNow());
+        if (!db->addStudent(sRes.value.getCourseId(), currentUser->getId(), getNow()).isOk()) {
+            return Error::StorageError;
+        }
         role = CourseRole::Student;
         newlyEnrolled = true;
     }
@@ -566,7 +576,10 @@ Result<LostPingChange> AppModel::addLost(int sessionId) {
 
     // Cooldown check (I8)
     Result<std::optional<Clock::time_point>> lastTime = db->getLastLostTime(sessionId, currentUser->getId());
-    if (lastTime.isOk() && lastTime.value.has_value()) {
+    if (!lastTime.isOk()) {
+        return Error::StorageError;  // never skip the cooldown on a database error
+    }
+    if (lastTime.value.has_value()) {
         const auto diffSecs = std::chrono::duration_cast<std::chrono::seconds>(getNow() - *lastTime.value).count();
         if (diffSecs < 5) {
             return Error::LostTooSoon;
@@ -579,6 +592,20 @@ Result<LostPingChange> AppModel::addLost(int sessionId) {
     }
 
     return LostPingChange{course, rawRes.value, pingRes.value};
+}
+
+// Why a change to an item of an ENDED session is refused. The author and
+// the educator are told it's frozen (I6). A classmate is told it isn't
+// theirs only if they can see it (published, and for a question, questions
+// shared); otherwise it "doesn't exist" for them (C5, A2), so ids can't be
+// probed.
+static Error getEndedRefusal(const Viewer& viewer, const Course& course, const Session& session,
+                             bool isAuthor, bool isQuestion) {
+    if (isAuthor || viewer.role == CourseRole::Educator) {
+        return Error::SessionEnded;
+    }
+    const bool visible = session.isPublished() && (!isQuestion || course.areQuestionsShared());
+    return visible ? Error::NotYourInput : Error::NoSuchInput;
 }
 
 Result<LostPingChange> AppModel::deleteLost(int pingId) {
@@ -599,7 +626,7 @@ Result<LostPingChange> AppModel::deleteLost(int pingId) {
     }
     if (!Permissions::canDeleteLost(viewer, rawRes.value, pingRes.value)) {
         if (!rawRes.value.isLive()) {
-            return Error::SessionEnded;
+            return getEndedRefusal(viewer, course, rawRes.value, pingRes.value.isBy(viewer.userId), false);
         }
         // A student can't see a classmate's live ping, so it "doesn't exist"
         // for them (appmodel.h: NoSuchInput if not visible to the user).
@@ -654,7 +681,7 @@ Result<QuestionChange> AppModel::editQuestion(int questionId, const std::string&
     }
     if (!Permissions::canEditQuestion(viewer, rawRes.value, qRes.value)) {
         if (!rawRes.value.isLive()) {
-            return Error::SessionEnded;
+            return getEndedRefusal(viewer, course, rawRes.value, qRes.value.isBy(viewer.userId), true);
         }
         // Same as deleteLost: a classmate's live question is invisible.
         return viewer.role == CourseRole::Educator ? Error::NotYourInput : Error::NoSuchInput;
@@ -702,7 +729,7 @@ Result<QuestionChange> AppModel::deleteQuestion(int questionId) {
             // question is invisible to a student.
             return viewer.role == CourseRole::Educator ? Error::SessionNotEnded : Error::NoSuchInput;
         }
-        return isAuthor ? Error::SessionEnded : Error::NotCourseEducator;  // I6 freeze
+        return getEndedRefusal(viewer, course, rawRes.value, isAuthor, true);  // I6 freeze
     }
     const bool byModerator = !rawRes.value.isLive();
 

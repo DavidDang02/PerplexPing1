@@ -62,8 +62,9 @@ public:
     std::string getLinkAt(long long sessionSeconds) const;
 
     // ---- Auto-match (R6) ----
-    // Index of the first candidate whose [start, start + duration] overlaps
-    // [sessionStart, sessionEnd], or -1 if none does.
+    // Index of the candidate whose [start, start + duration] overlaps
+    // [sessionStart, sessionEnd] the most (tie: the closest start), or -1
+    // if none does.
     static int findOverlapping(const std::vector<RecordingCandidate>& candidates,
                                Clock::time_point sessionStart, Clock::time_point sessionEnd);
 

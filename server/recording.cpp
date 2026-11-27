@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -67,6 +68,13 @@ std::string Recording::getLinkAt(long long sessionSeconds) const {
 int Recording::findOverlapping(const std::vector<RecordingCandidate>& candidates,
                                std::chrono::system_clock::time_point sessionStart,
                                std::chrono::system_clock::time_point sessionEnd) {
+    // The candidate that overlaps the session the most wins; on a tie, the
+    // one that starts closest to the session. (A recording with no length
+    // counts as 70 minutes, so it can overlap the next lecture a little:
+    // taking the FIRST overlap could pick the wrong one.)
+    int best = -1;
+    long long bestOverlap = 0;
+    long long bestDistance = 0;
     for (size_t i = 0; i < candidates.size(); ++i) {
         const auto& c = candidates[i];
         long long duration = c.durationSeconds > 0
@@ -74,11 +82,20 @@ int Recording::findOverlapping(const std::vector<RecordingCandidate>& candidates
             : Recording::kDefaultDurationSeconds;
         auto candStart = c.start;
         auto candEnd = c.start + std::chrono::seconds(duration);
-        if (candStart < sessionEnd && candEnd > sessionStart) {
-            return static_cast<int>(i);
+        if (!(candStart < sessionEnd && candEnd > sessionStart)) {
+            continue;
+        }
+        const long long overlap = std::chrono::duration_cast<std::chrono::seconds>(
+            std::min(candEnd, sessionEnd) - std::max(candStart, sessionStart)).count();
+        const long long distance = std::llabs(std::chrono::duration_cast<std::chrono::seconds>(
+            candStart - sessionStart).count());
+        if (best < 0 || overlap > bestOverlap || (overlap == bestOverlap && distance < bestDistance)) {
+            best = static_cast<int>(i);
+            bestOverlap = overlap;
+            bestDistance = distance;
         }
     }
-    return -1;
+    return best;
 }
 
 long long Recording::getOffsetBetween(

@@ -10,6 +10,7 @@
 #include "database.h"
 #include "error.h"
 #include "passwordhasher.h"
+#include "recording.h"
 
 namespace {
 
@@ -185,4 +186,60 @@ TEST_CASE("R6: only the educator links a Panopto folder, and only a real folder 
     CHECK_FALSE(asStudent.value.course.hasPanoptoFolder());
     // Unlink.
     CHECK_FALSE(c.prof.linkPanoptoFolder(c.courseId, "").value.hasPanoptoFolder());
+}
+
+TEST_CASE("I8: deleting a press doesn't reset the 5-second cooldown") {
+    Class c;
+    const auto first = c.ana.addLost(c.sessionId);
+    REQUIRE(first.isOk());
+    REQUIRE(c.ana.deleteLost(first.value.ping.getId()).isOk());
+    c.seconds += 1;
+    CHECK(c.ana.addLost(c.sessionId).error == Error::LostTooSoon);
+    c.seconds += 5;
+    CHECK(c.ana.addLost(c.sessionId).isOk());
+}
+
+TEST_CASE("C5/A2: after the end, a classmate can't probe for hidden items") {
+    Class c(/*questionsShared=*/false);
+    const int q = c.ask(c.ana, "private");
+    const auto ping = c.ana.addLost(c.sessionId);
+    REQUIRE(ping.isOk());
+    c.seconds += 3600;
+    REQUIRE(c.prof.endSession(c.sessionId).isOk());
+    // In review: nothing of the session is visible to bob.
+    CHECK(c.bob.deleteQuestion(q).error == Error::NoSuchInput);
+    CHECK(c.bob.editQuestion(q, "x").error == Error::NoSuchInput);
+    CHECK(c.bob.deleteLost(ping.value.ping.getId()).error == Error::NoSuchInput);
+    REQUIRE(c.prof.publishSession(c.sessionId).isOk());
+    // Published, questions not shared: the question is still hidden, the
+    // (nameless) press is visible but not his.
+    CHECK(c.bob.deleteQuestion(q).error == Error::NoSuchInput);
+    CHECK(c.bob.deleteLost(ping.value.ping.getId()).error == Error::NotYourInput);
+    // The author is told it's frozen.
+    CHECK(c.ana.editQuestion(q, "x").error == Error::SessionEnded);
+}
+
+TEST_CASE("C8: students don't get the list of classmates' ids") {
+    Class c;
+    const auto asStudent = c.ana.getCourse(c.courseId);
+    REQUIRE(asStudent.isOk());
+    CHECK(asStudent.value.course.getStudentIds().empty());
+    const auto asEducator = c.prof.getCourse(c.courseId);
+    REQUIRE(asEducator.isOk());
+    CHECK(asEducator.value.course.getStudentIds().size() == 2);
+}
+
+TEST_CASE("R6: Find recording picks the recording that overlaps the most") {
+    using std::chrono::seconds;
+    const Clock::time_point ten(seconds(1700000000));
+    RecordingCandidate earlier;  // 9:00 with no length: counted as 9:00-10:10
+    earlier.viewerUrl = "https://scu.hosted.panopto.com/v?id=a";
+    earlier.start = ten - seconds(3600);
+    RecordingCandidate real;  // 10:00-11:00
+    real.viewerUrl = "https://scu.hosted.panopto.com/v?id=b";
+    real.start = ten;
+    real.durationSeconds = 3600;
+    CHECK(Recording::findOverlapping({earlier, real}, ten, ten + seconds(3600)) == 1);
+    CHECK(Recording::findOverlapping({real, earlier}, ten, ten + seconds(3600)) == 0);
+    CHECK(Recording::findOverlapping({earlier}, ten + seconds(7200), ten + seconds(9000)) == -1);
 }

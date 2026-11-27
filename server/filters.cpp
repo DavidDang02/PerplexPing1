@@ -85,7 +85,9 @@ std::vector<Bucket> getBuckets(const Session& session, long long bucketSeconds) 
     for (const SessionQuestion& question : session.getQuestions()) {
         length = std::max(length, session.getOffsetSeconds(question.getTime()));
     }
-    const long long count = std::max(1LL, length / bucketSeconds + 1);
+    // A session that ends at exactly 60:00 has 60 one-minute bars; an item
+    // at 60:00 goes in the last one (indexFor clamps).
+    const long long count = std::max(1LL, (length + bucketSeconds - 1) / bucketSeconds);
 
     std::vector<Bucket> buckets(static_cast<size_t>(count));
     for (long long i = 0; i < count; ++i) {

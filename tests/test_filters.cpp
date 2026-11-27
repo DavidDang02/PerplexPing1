@@ -108,7 +108,7 @@ TEST_CASE("Timeline: edge cases never crash or lose an item") {
     skewed.setId(1);
     ended.setLostPings({skewed});
     const auto buckets = Timeline::getBuckets(ended, 0);
-    REQUIRE(buckets.size() == 3);
+    REQUIRE(buckets.size() == 2);  // exactly 2:00 long
     CHECK(buckets[0].lostCount == 1);
 
     // Ties go to the earliest bar.
@@ -116,4 +116,14 @@ TEST_CASE("Timeline: edge cases never crash or lose an item") {
     tie[1].lostCount = 2;
     tie[2].lostCount = 2;
     CHECK(Timeline::getPeakIndex(tie) == 1);
+}
+
+TEST_CASE("Timeline: a session of exactly one hour has 60 bars, the last item in the last") {
+    Session hour(9, 1, at(0), at(3600));
+    LostPing last(at(3600));
+    last.setId(1);
+    hour.setLostPings({last});
+    const auto buckets = Timeline::getBuckets(hour);
+    REQUIRE(buckets.size() == 60);
+    CHECK(buckets[59].lostCount == 1);
 }

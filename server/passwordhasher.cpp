@@ -1,12 +1,12 @@
 #include "passwordhasher.h"
 
 #include <QCryptographicHash>
-#include <QMessageAuthenticationCode>
+#include <QPasswordDigestor>
 #include <QRandomGenerator>
 
 std::string PasswordHasher::generateSaltHex() {
     quint32 randomWords[kSaltBytes / sizeof(quint32)];
-    QRandomGenerator::global()->fillRange(randomWords, kSaltBytes / sizeof(quint32));
+    QRandomGenerator::system()->fillRange(randomWords, kSaltBytes / sizeof(quint32));
     QByteArray saltBytes(reinterpret_cast<const char*>(randomWords), sizeof(randomWords));
     return saltBytes.toHex().toStdString();
 }
@@ -18,27 +18,13 @@ std::string PasswordHasher::hashPassword(const std::string& password,
         iterations = kDefaultIterations;
     }
 
-    const QByteArray passBytes = QByteArray::fromStdString(password);
-    const QByteArray saltBytes = QByteArray::fromHex(QByteArray::fromStdString(saltHex));
-
-    // PBKDF2-HMAC-SHA256: block index 1 (big endian 0x00000001) for 32 output bytes.
-    QByteArray saltWithIndex = saltBytes;
-    saltWithIndex.append('\0');
-    saltWithIndex.append('\0');
-    saltWithIndex.append('\0');
-    saltWithIndex.append('\1');
-
-    QByteArray u = QMessageAuthenticationCode::hash(saltWithIndex, passBytes, QCryptographicHash::Sha256);
-    QByteArray result = u;
-
-    for (int i = 1; i < iterations; ++i) {
-        u = QMessageAuthenticationCode::hash(u, passBytes, QCryptographicHash::Sha256);
-        for (int j = 0; j < result.size(); ++j) {
-            result[j] = static_cast<char>(result[j] ^ u[j]);
-        }
-    }
-
-    return result.toHex().toStdString();
+    // Qt's own PBKDF2-HMAC-SHA256 (RFC 8018), 32 bytes.
+    return QPasswordDigestor::deriveKeyPbkdf2(QCryptographicHash::Sha256,
+                                              QByteArray::fromStdString(password),
+                                              QByteArray::fromHex(QByteArray::fromStdString(saltHex)),
+                                              iterations, 32)
+        .toHex()
+        .toStdString();
 }
 
 bool PasswordHasher::verifyPassword(const std::string& password,

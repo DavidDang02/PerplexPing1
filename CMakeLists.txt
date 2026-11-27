@@ -71,7 +71,7 @@ if(BUILD_SERVER)
         server/perplexserver.cpp
         ${SERVER_MODEL_SOURCES}
     )
-    target_link_libraries(perplexing_server PRIVATE Qt6::Sql Qt6::WebSockets)
+    target_link_libraries(perplexing_server PRIVATE Qt6::Sql Qt6::WebSockets Qt6::Network)
     target_include_directories(perplexing_server PRIVATE server)
 endif()
 
@@ -82,7 +82,7 @@ if(BUILD_TESTS)
         tests/test_main.cpp
         ${SERVER_MODEL_SOURCES}
     )
-    target_link_libraries(db_tests PRIVATE Qt6::Sql)
+    target_link_libraries(db_tests PRIVATE Qt6::Sql Qt6::Network)
     target_include_directories(db_tests PRIVATE server)
 
     # The app's controller and view text, driven against a real server
@@ -120,7 +120,7 @@ if(BUILD_TESTS)
         ${SERVER_MODEL_SOURCES}
         server/perplexserver.cpp
     )
-    target_link_libraries(server_tests PRIVATE Qt6::Sql Qt6::WebSockets)
+    target_link_libraries(server_tests PRIVATE Qt6::Sql Qt6::WebSockets Qt6::Network)
     target_include_directories(server_tests PRIVATE server tests)
 
     enable_testing()

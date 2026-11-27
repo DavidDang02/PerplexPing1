@@ -34,6 +34,7 @@
 #pragma once
 
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -108,7 +109,8 @@ public:
     // case); false if there is no such user.
     Result<bool> setEmail(int userId, const std::string& email);
 
-    // [F4] U8: number of live sessions this user started (host_id).
+    // [F4] U8: number of live sessions this user started (host_id), -1 if
+    // the database refused.
     int countLiveSessionsHostedBy(int userId);
 
     // [F4] U8: deletes the user row, nothing else. The foreign keys do the
@@ -198,7 +200,8 @@ public:
     Result<LostPing> addLostPing(int sessionId, int userId, Clock::time_point time);
     Result<LostPing> getLostPing(int pingId);  // raw
     Result<std::vector<LostPing>> listLostPings(int sessionId);  // raw, by time then id
-    // [S] I8: time of the user's latest Lost in the session, if any.
+    // [S] I8: time of the user's latest Lost in the session, if any,
+    // counting presses deleted since the server started.
     Result<std::optional<Clock::time_point>> getLastLostTime(int sessionId, int userId);
     // [F3] False if no such ping.
     Result<bool> deleteLostPing(int pingId);
@@ -231,6 +234,10 @@ public:
     Result<bool> deleteAnswer(int answerId);
 
 private:
+    // I8: the latest Lost press per (session, user) during this run, so
+    // deleting a press doesn't reset the 5-second cooldown.
+    std::map<std::pair<int, int>, Clock::time_point> lastLostTimes;
+
     bool createTables();     // schema.sql
     bool migrateV1ToV2();    // none yet: always refuses (see open())
     // What kind of file was opened: 0 = empty, 1 = made by the M2 app
