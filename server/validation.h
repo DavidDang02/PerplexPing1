@@ -71,6 +71,9 @@ public:
     // R2: RecordingUrlInvalid unless 1..kMaxUrlLength characters, no spaces,
     // and starts with "https://" or "http://".
     static Error checkRecordingUrl(const std::string& url);
+    // R6: "" (unlink) or a Panopto folder id: 1-64 hex digits and dashes,
+    // e.g. "1b2c3d4e-0000-4a5b-8c9d-0123456789ab". PanoptoFolderInvalid otherwise.
+    static Error checkPanoptoFolderId(const std::string& folderId);
 
     // R3: RecordingOffsetInvalid unless within +/- Recording::kMaxOffsetSeconds.
     static Error checkRecordingOffset(long long offsetSeconds);

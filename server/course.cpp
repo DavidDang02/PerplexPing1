@@ -55,7 +55,8 @@ void Course::setEducatorId(int userId) {
 }
 
 bool Course::isEducator(int userId) const {
-    return this->educatorId == userId;
+    // 0 means "nobody" (a deleted account), never the educator.
+    return userId != 0 && this->educatorId == userId;
 }
 
 const std::vector<int>& Course::getStudentIds() const {
@@ -88,4 +89,15 @@ int Course::getLiveSessionId() const {
 
 void Course::setLiveSessionId(int sessionId) {
     this->liveSessionId = sessionId;
+}
+const std::string& Course::getPanoptoFolderId() const {
+    return panoptoFolderId;
+}
+
+void Course::setPanoptoFolderId(const std::string& folderId) {
+    panoptoFolderId = folderId;
+}
+
+bool Course::hasPanoptoFolder() const {
+    return !panoptoFolderId.empty();
 }

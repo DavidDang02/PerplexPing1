@@ -9,12 +9,13 @@ struct ErrorEntry {
     const char* code;
 };
 
-constexpr std::array<ErrorEntry, 47> kErrorTable = {{
+constexpr std::array<ErrorEntry, 57> kErrorTable = {{
     {Error::None, "None"},
     {Error::BadRequest, "BadRequest"},
     {Error::UnknownRequest, "UnknownRequest"},
     {Error::NotLoggedIn, "NotLoggedIn"},
     {Error::StorageError, "StorageError"},
+    {Error::ServerUnreachable, "ServerUnreachable"},
     {Error::EmptyName, "EmptyName"},
     {Error::NameTooShort, "NameTooShort"},
     {Error::NameTooLong, "NameTooLong"},
@@ -56,8 +57,21 @@ constexpr std::array<ErrorEntry, 47> kErrorTable = {{
     {Error::NotYourAnswer, "NotYourAnswer"},
     {Error::RecordingUrlInvalid, "RecordingUrlInvalid"},
     {Error::RecordingOffsetInvalid, "RecordingOffsetInvalid"},
+    {Error::PanoptoFolderInvalid, "PanoptoFolderInvalid"},
+    {Error::PanoptoNotConfigured, "PanoptoNotConfigured"},
+    {Error::PanoptoSignInFailed, "PanoptoSignInFailed"},
+    {Error::PanoptoLinkInvalid, "PanoptoLinkInvalid"},
+    {Error::PanoptoUnreachable, "PanoptoUnreachable"},
+    {Error::PanoptoFolderNotLinked, "PanoptoFolderNotLinked"},
+    {Error::PanoptoPortBusy, "PanoptoPortBusy"},
+    {Error::PanoptoNoAccess, "PanoptoNoAccess"},
+    {Error::TeachesCourse, "TeachesCourse"},
     {Error::RecordingNotReady, "RecordingNotReady"},
 }};
+// Adding an Error without a row here fails to compile, instead of silently
+// sending "BadRequest" for it.
+static_assert(kErrorTable.size() == static_cast<size_t>(Error::TeachesCourse) + 1,
+              "every Error needs a row in kErrorTable");
 
 }  // namespace
 

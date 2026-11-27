@@ -3,6 +3,9 @@
 
 #include "protocol.h"
 
+#include <cmath>
+#include <limits>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 
@@ -40,13 +43,6 @@ QJsonObject toJson(const User& user) {
     return obj;
 }
 
-bool userFromJson(const QJsonObject& obj, User& user) {
-    int id = obj[Field::kId].toInt(0);
-    QString name = obj[Field::kName].toString();
-    QString email = obj[Field::kEmail].toString();
-    user = User(id, name.toStdString(), email.toStdString());
-    return true;
-}
 
 // ---- Course ----
 
@@ -56,7 +52,25 @@ QJsonObject toJson(const Course& course) {
     obj[Field::kName] = QString::fromStdString(course.getName());
     obj[Field::kJoinCode] = QString::fromStdString(course.getJoinCode());
     obj[Field::kAnonymous] = course.isAnonymous();
+    obj[Field::kQuestionsShared] = course.areQuestionsShared();
     obj[Field::kEducatorId] = course.getEducatorId();
+    obj[Field::kRole] = toText(course.getRole());
+    if (course.getLiveSessionId() != 0) {
+        obj[Field::kLiveSessionId] = course.getLiveSessionId();
+    }
+    if (course.hasPanoptoFolder()) {
+        obj[Field::kPanoptoFolderId] = QString::fromStdString(course.getPanoptoFolderId());
+    }
+    QJsonArray students;
+    for (int id : course.getStudentIds()) {
+        students.append(id);
+    }
+    obj[Field::kStudentIds] = students;
+    QJsonArray sessions;
+    for (int id : course.getSessionIds()) {
+        sessions.append(id);
+    }
+    obj[Field::kSessionIds] = sessions;
     return obj;
 }
 
@@ -68,17 +82,19 @@ QJsonArray toJson(const std::vector<Course>& courses) {
     return arr;
 }
 
-bool courseFromJson(const QJsonObject& obj, Course& course) {
-    course.setId(obj[Field::kId].toInt(0));
-    course.setName(obj[Field::kName].toString().toStdString());
-    course.setJoinCode(obj[Field::kJoinCode].toString().toStdString());
-    course.setAnonymous(obj[Field::kAnonymous].toInt(0));
-    course.setQuestionsShared(obj[Field::kQuestionsShared].toInt(0));
-    course.setEducatorId(obj[Field::kEducatorId].toInt(0));
-    return true;
-}
 
 // ---- Session ----
+
+QJsonObject toDetailsJson(const Session& session) {
+    QJsonObject obj = toJson(session);
+    // Items were not loaded, so leave them out instead of sending 0 and []
+    // (which would look like an empty session to the app).
+    obj.remove(Field::kLostCount);
+    obj.remove(Field::kQuestionCount);
+    obj.remove(Field::kLostPings);
+    obj.remove(Field::kQuestions);
+    return obj;
+}
 
 QJsonObject toJson(const Session& session) {
     QJsonObject obj;
@@ -98,20 +114,24 @@ QJsonObject toJson(const Session& session) {
     }
     obj[Field::kLostCount] = session.getPressCount();
     obj[Field::kQuestionCount] = session.getQuestionCount();
+    obj[Field::kHasRecording] = session.getRecording() != nullptr;
     if (session.getRecording()) {
-        obj[Field::kHasRecording] = true;
+        obj[Field::kRecording] = toJson(*session.getRecording());
     }
+    // The items this viewer may see (the server runs Visibility first).
+    QJsonArray pings;
+    for (const auto& ping : session.getLostPings()) {
+        pings.append(toJson(ping));
+    }
+    obj[Field::kLostPings] = pings;
+    QJsonArray questions;
+    for (const auto& question : session.getQuestions()) {
+        questions.append(toJson(question));
+    }
+    obj[Field::kQuestions] = questions;
     return obj;
 }
 
-bool sessionFromJson(const QJsonObject& obj, Session& session) {
-    session.setId(obj[Field::kId].toInt(0));
-    session.setName(obj[Field::kName].toString().toStdString());
-    session.setCourseId(obj[Field::kCourseId].toInt(0));
-    session.setJoinCode(obj[Field::kJoinCode].toString().toStdString());
-    // Note: startTime and endTime need careful handling if loading from DB
-    return true;
-}
 
 // ---- LostPing ----
 
@@ -120,20 +140,13 @@ QJsonObject toJson(const LostPing& ping) {
     obj[Field::kPingId] = ping.getId();
     obj[Field::kSessionId] = ping.getSessionId();
     obj[Field::kTime] = toMs(ping.getTime());
-    if (ping.hasAuthor()) {
-        obj[Field::kAuthorId] = ping.getAuthorId();
-        obj[Field::kAuthorName] = QString::fromStdString(ping.getAuthorName());
-        obj[Field::kAuthorState] = toText(ping.getAuthorState());
-    }
+    // Always all three (V4): id 0 and name "" unless the author is known.
+    obj[Field::kAuthorState] = toText(ping.getAuthorState());
+    obj[Field::kAuthorId] = ping.hasAuthor() ? ping.getAuthorId() : 0;
+    obj[Field::kAuthorName] = ping.hasAuthor() ? QString::fromStdString(ping.getAuthorName()) : QString();
     return obj;
 }
 
-bool lostPingFromJson(const QJsonObject& obj, LostPing& ping) {
-    ping.setId(obj[Field::kPingId].toInt(0));
-    ping.setSessionId(obj[Field::kSessionId].toInt(0));
-    // Time handling would need careful implementation
-    return true;
-}
 
 // ---- SessionQuestion ----
 
@@ -146,19 +159,18 @@ QJsonObject toJson(const SessionQuestion& question) {
     if (question.isEdited()) {
         obj[Field::kEditedTime] = toMs(*question.getEditedTime());
     }
-    if (question.hasAuthor()) {
-        obj[Field::kAuthorId] = question.getAuthorId();
-        obj[Field::kAuthorName] = QString::fromStdString(question.getAuthorName());
-        obj[Field::kAuthorState] = toText(question.getAuthorState());
+    QJsonArray answers;
+    for (const auto& answer : question.getAnswers()) {
+        answers.append(toJson(answer));
     }
+    obj[Field::kAnswers] = answers;
+    // Always all three (V4): id 0 and name "" unless the author is known.
+    obj[Field::kAuthorState] = toText(question.getAuthorState());
+    obj[Field::kAuthorId] = question.hasAuthor() ? question.getAuthorId() : 0;
+    obj[Field::kAuthorName] = question.hasAuthor() ? QString::fromStdString(question.getAuthorName()) : QString();
     return obj;
 }
 
-bool questionFromJson(const QJsonObject& obj, SessionQuestion& question) {
-    question.setId(obj[Field::kQuestionId].toInt(0));
-    question.setSessionId(obj[Field::kSessionId].toInt(0));
-    return true;
-}
 
 // ---- Answer ----
 
@@ -172,11 +184,10 @@ QJsonObject toJson(const Answer& answer) {
     if (answer.isEdited()) {
         obj[Field::kEditedTime] = toMs(*answer.getEditedTime());
     }
-    if (answer.hasAuthor()) {
-        obj[Field::kAuthorId] = answer.getAuthorId();
-        obj[Field::kAuthorName] = QString::fromStdString(answer.getAuthorName());
-        obj[Field::kAuthorState] = toText(answer.getAuthorState());
-    }
+    // Always all three (V4): id 0 and name "" unless the author is known.
+    obj[Field::kAuthorState] = toText(answer.getAuthorState());
+    obj[Field::kAuthorId] = answer.hasAuthor() ? answer.getAuthorId() : 0;
+    obj[Field::kAuthorName] = answer.hasAuthor() ? QString::fromStdString(answer.getAuthorName()) : QString();
     return obj;
 }
 
@@ -190,8 +201,38 @@ QJsonObject toJson(const Recording& recording) {
     return obj;
 }
 
-bool recordingFromJson(const QJsonObject& obj, Recording& recording) {
-    return true;
+
+// ---- Recording candidates (checkRecording) ----
+
+QJsonObject toJson(const RecordingCandidate& candidate) {
+    QJsonObject obj;
+    obj[Field::kUrl] = QString::fromStdString(candidate.viewerUrl);
+    obj[Field::kName] = QString::fromStdString(candidate.name);
+    obj[Field::kStartTime] = toMs(candidate.start);
+    obj[Field::kDurationSeconds] = candidate.durationSeconds;
+    return obj;
+}
+
+QJsonArray toJson(const std::vector<RecordingCandidate>& candidates) {
+    QJsonArray arr;
+    for (const auto& candidate : candidates) {
+        arr.append(toJson(candidate));
+    }
+    return arr;
+}
+
+std::vector<RecordingCandidate> candidatesFromJson(const QJsonArray& json) {
+    std::vector<RecordingCandidate> candidates;
+    for (const QJsonValue& value : json) {
+        const QJsonObject obj = value.toObject();
+        RecordingCandidate candidate;
+        candidate.viewerUrl = obj[Field::kUrl].toString().toStdString();
+        candidate.name = obj[Field::kName].toString().toStdString();
+        candidate.start = fromMs(obj[Field::kStartTime].toInteger());
+        candidate.durationSeconds = obj[Field::kDurationSeconds].toInteger();
+        candidates.push_back(std::move(candidate));
+    }
+    return candidates;
 }
 
 // ---- Participant ----
@@ -203,11 +244,6 @@ QJsonObject toJson(const Participant& p) {
     return obj;
 }
 
-bool participantFromJson(const QJsonObject& obj, Participant& p) {
-    p.userId = obj[Field::kUserId].toInt(0);
-    p.name = obj[Field::kName].toString().toStdString();
-    return true;
-}
 
 // ---- SessionSummary ----
 
@@ -218,18 +254,15 @@ QJsonObject toJson(const SessionSummary& s) {
     obj[Field::kStartTime] = toMs(s.startTime);
     obj[Field::kStatus] = toText(s.status);
     obj[Field::kCourseId] = s.courseId;
-    if (s.endTime != std::chrono::system_clock::time_point{}) {
+    if (!s.isLive()) {
         obj[Field::kEndTime] = toMs(s.endTime);
     }
+    obj[Field::kLostCount] = s.lostCount;
+    obj[Field::kQuestionCount] = s.questionCount;
+    obj[Field::kHasRecording] = s.hasRecording;
     return obj;
 }
 
-bool summaryFromJson(const QJsonObject& obj, SessionSummary& s) {
-    s.id = obj[Field::kSessionId].toInt(0);
-    s.name = obj[Field::kName].toString().toStdString();
-    s.courseId = obj[Field::kCourseId].toInt(0);
-    return true;
-}
 
 // ---- Vectors ----
 
@@ -309,6 +342,178 @@ AuthorState authorStateFromText(const QString& text) {
     return AuthorState::Hidden;
 }
 
+// ---- JSON -> objects (the app's side). Missing or wrong fields become
+// zero values; nothing throws. ----
+
+namespace {
+
+std::chrono::system_clock::time_point timeField(const QJsonObject& obj, const QString& key) {
+    return fromMs(obj[key].toInteger(0));
+}
+
+// The three author fields (V4) onto any item that has setAuthor/hideAuthor.
+template <typename Item>
+void readAuthor(const QJsonObject& obj, Item& item) {
+    switch (authorStateFromText(obj[Field::kAuthorState].toString())) {
+    case AuthorState::Known:
+        item.setAuthor(obj[Field::kAuthorId].toInt(0),
+                       obj[Field::kAuthorName].toString().toStdString());
+        break;
+    case AuthorState::Deleted:
+        item.setAuthorDeleted();
+        break;
+    case AuthorState::Hidden:
+        item.hideAuthor();
+        break;
+    }
+}
+
+std::vector<int> intsFromJson(const QJsonArray& json) {
+    std::vector<int> ids;
+    for (const QJsonValue& value : json) {
+        ids.push_back(value.toInt(0));
+    }
+    return ids;
+}
+
+}  // namespace
+
+User userFromJson(const QJsonObject& json) {
+    return User(json[Field::kId].toInt(0), json[Field::kName].toString().toStdString(),
+                json[Field::kEmail].toString().toStdString());
+}
+
+Participant participantFromJson(const QJsonObject& json) {
+    Participant p;
+    p.userId = json[Field::kUserId].toInt(0);
+    p.name = json[Field::kName].toString().toStdString();
+    return p;
+}
+
+Course courseFromJson(const QJsonObject& json) {
+    Course course(json[Field::kId].toInt(0), json[Field::kName].toString().toStdString());
+    course.setJoinCode(json[Field::kJoinCode].toString().toStdString());
+    course.setAnonymous(json[Field::kAnonymous].toBool(false));
+    course.setQuestionsShared(json[Field::kQuestionsShared].toBool(false));
+    course.setEducatorId(json[Field::kEducatorId].toInt(0));
+    course.setRole(roleFromText(json[Field::kRole].toString()));
+    course.setLiveSessionId(json[Field::kLiveSessionId].toInt(0));
+    course.setPanoptoFolderId(json[Field::kPanoptoFolderId].toString().toStdString());
+    course.setStudentIds(intsFromJson(json[Field::kStudentIds].toArray()));
+    course.setSessionIds(intsFromJson(json[Field::kSessionIds].toArray()));
+    return course;
+}
+
+SessionSummary summaryFromJson(const QJsonObject& json) {
+    SessionSummary s;
+    s.id = json[Field::kSessionId].toInt(0);
+    s.courseId = json[Field::kCourseId].toInt(0);
+    s.name = json[Field::kName].toString().toStdString();
+    s.startTime = timeField(json, Field::kStartTime);
+    s.endTime = timeField(json, Field::kEndTime);
+    s.status = statusFromText(json[Field::kStatus].toString());
+    s.lostCount = json[Field::kLostCount].toInt(0);
+    s.questionCount = json[Field::kQuestionCount].toInt(0);
+    s.hasRecording = json[Field::kHasRecording].toBool(false);
+    return s;
+}
+
+LostPing lostPingFromJson(const QJsonObject& json) {
+    LostPing ping(timeField(json, Field::kTime));
+    ping.setId(json[Field::kPingId].toInt(0));
+    ping.setSessionId(json[Field::kSessionId].toInt(0));
+    readAuthor(json, ping);
+    return ping;
+}
+
+Answer answerFromJson(const QJsonObject& json) {
+    Answer answer(json[Field::kAnswerId].toInt(0), json[Field::kQuestionId].toInt(0),
+                  timeField(json, Field::kTime), json[Field::kText].toString().toStdString());
+    if (json.contains(Field::kEditedTime)) {
+        answer.setEditedTime(timeField(json, Field::kEditedTime));
+    }
+    answer.setByEducator(json[Field::kByEducator].toBool(false));
+    readAuthor(json, answer);
+    return answer;
+}
+
+SessionQuestion questionFromJson(const QJsonObject& json) {
+    SessionQuestion question(timeField(json, Field::kTime),
+                             json[Field::kText].toString().toStdString());
+    question.setId(json[Field::kQuestionId].toInt(0));
+    question.setSessionId(json[Field::kSessionId].toInt(0));
+    if (json.contains(Field::kEditedTime)) {
+        question.setEditedTime(timeField(json, Field::kEditedTime));
+    }
+    readAuthor(json, question);
+    std::vector<Answer> answers;
+    for (const QJsonValue& value : json[Field::kAnswers].toArray()) {
+        answers.push_back(answerFromJson(value.toObject()));
+    }
+    question.setAnswers(std::move(answers));
+    return question;
+}
+
+Recording recordingFromJson(const QJsonObject& json) {
+    return Recording(json[Field::kUrl].toString().toStdString(),
+                     json[Field::kOffsetSeconds].toInteger(0),
+                     sourceFromText(json[Field::kSource].toString()));
+}
+
+Session sessionFromJson(const QJsonObject& json) {
+    const int id = json[Field::kSessionId].toInt(json[Field::kId].toInt(0));
+    const int hostId = json[Field::kHostId].toInt(0);
+    const auto start = timeField(json, Field::kStartTime);
+    const SessionStatus status = statusFromText(json[Field::kStatus].toString());
+    Session session = status == SessionStatus::Live
+                          ? Session(id, hostId, start)
+                          : Session(id, hostId, start, timeField(json, Field::kEndTime));
+    if (status == SessionStatus::Published) {
+        session.publish(timeField(json, Field::kPublishedTime));
+    }
+    session.setCourseId(json[Field::kCourseId].toInt(0));
+    session.setName(json[Field::kName].toString().toStdString());
+    session.setJoinCode(json[Field::kJoinCode].toString().toStdString());
+    if (json[Field::kRecording].isObject()) {
+        session.setRecording(recordingFromJson(json[Field::kRecording].toObject()));
+    }
+    std::vector<LostPing> pings;
+    for (const QJsonValue& value : json[Field::kLostPings].toArray()) {
+        pings.push_back(lostPingFromJson(value.toObject()));
+    }
+    session.setLostPings(std::move(pings));
+    std::vector<SessionQuestion> questions;
+    for (const QJsonValue& value : json[Field::kQuestions].toArray()) {
+        questions.push_back(questionFromJson(value.toObject()));
+    }
+    session.setQuestions(std::move(questions));
+    return session;
+}
+
+std::vector<Course> coursesFromJson(const QJsonArray& json) {
+    std::vector<Course> courses;
+    for (const QJsonValue& value : json) {
+        courses.push_back(courseFromJson(value.toObject()));
+    }
+    return courses;
+}
+
+std::vector<SessionSummary> summariesFromJson(const QJsonArray& json) {
+    std::vector<SessionSummary> summaries;
+    for (const QJsonValue& value : json) {
+        summaries.push_back(summaryFromJson(value.toObject()));
+    }
+    return summaries;
+}
+
+std::vector<Participant> participantsFromJson(const QJsonArray& json) {
+    std::vector<Participant> participants;
+    for (const QJsonValue& value : json) {
+        participants.push_back(participantFromJson(value.toObject()));
+    }
+    return participants;
+}
+
 // ---- Whole message helpers ----
 
 QJsonObject makeError(const QString& requestType, Error error) {
@@ -324,6 +529,15 @@ Error getError(const QJsonObject& errorMessage) {
     return getErrorFromCode(code.toStdString());
 }
 
+bool isInt(const QJsonValue& value) {
+    if (!value.isDouble()) {
+        return false;
+    }
+    const double number = value.toDouble();
+    return number == std::floor(number) && number >= std::numeric_limits<int>::min() &&
+           number <= std::numeric_limits<int>::max();
+}
+
 bool hasFields(const QJsonObject& message,
                std::initializer_list<std::pair<QString, char>> fields) {
     for (const auto& [key, type] : fields) {
@@ -331,7 +545,7 @@ bool hasFields(const QJsonObject& message,
         QJsonValue val = message[key];
         switch (type) {
             case 's': if (!val.isString()) return false; break;
-            case 'i': if (!val.isDouble()) return false; break;
+            case 'i': if (!isInt(val)) return false; break;
             case 'b': if (!val.isBool()) return false; break;
             case 'o': if (!val.isObject()) return false; break;
         }

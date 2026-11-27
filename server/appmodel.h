@@ -13,7 +13,11 @@
 //
 // Conventions:
 //   * Every method first checks "logged in?" (Error::NotLoggedIn, U9) unless
-//     it says otherwise, then validates, then checks permission, then saves.
+//     it says otherwise, then finds the course/session (NoSuch...), then asks
+//     Permissions (one yes/no rule per action; AppModel picks the error that
+//     says why), then validates the text, then saves. So a student typing an
+//     over-long name for an educator-only action is told "not allowed", not
+//     "too long".
 //   * Text arguments are trimmed here (except passwords). Callers pass what
 //     the user typed.
 //   * All times come from the clock passed to the constructor, cut to whole
@@ -68,7 +72,7 @@ struct QuestionChange {
     Session session;
     SessionQuestion question;  // RAW, with its answers. After a delete: as it was just before.
     int answerId = 0;          // the answer added / edited / deleted, 0 for question changes
-    bool byModerator = false;  // deleteQuestion only: the educator removed a student's question (I7)
+    bool byModerator = false;  // deleteQuestion/deleteAnswer: the educator removed a student's item (I7, A7)
 };
 
 class AppModel {
@@ -144,6 +148,12 @@ public:
     // [S] C9. Educator only. Deletes the course with everything in it.
     Error deleteCourse(int courseId);
 
+    // [F5] R6. Educator only. Remembers which Panopto folder holds this
+    // course's recordings, for "Find recording". The app works the id out
+    // from a lecture link the educator pastes; "" unlinks it.
+    // PanoptoFolderInvalid if it isn't a folder id.
+    Result<Course> linkPanoptoFolder(int courseId, const std::string& folderId);
+
     // The logged-in user's role in a course, worked out every time from
     // Courses.educator_id and CourseMembers, never saved: Educator if they
     // created it, Student if they joined it, None if logged out or neither.
@@ -179,8 +189,9 @@ public:
     // [F4] S8. Returns raw details (no inputs).
     Result<Session> renameSession(int sessionId, const std::string& name);
 
-    // [F4] S9. Returns the raw details as they were (so the server knows the
-    // course and can tell the room).
+    // [F4] S9. Educator only, and only once ended (SessionNotEnded while
+    // live: end it first). Returns the raw details as they were (so the
+    // server knows the course and can tell the course members).
     Result<Session> deleteSession(int sessionId);
 
     // ================= Lost pings and questions (live) =================
@@ -213,7 +224,9 @@ public:
     // [F4] A3, A8. Only the author. `question` in the result has the edited answer.
     Result<QuestionChange> editAnswer(int answerId, const std::string& text);
 
-    // [F4] A7. NoSuchAnswer if unknown or not visible to the user.
+    // [F4] A7. The author, or the course's educator (moderation: sets
+    // byModerator). NoSuchAnswer if unknown or not visible to the user,
+    // NotYourAnswer for another student's answer.
     Result<QuestionChange> deleteAnswer(int answerId);
 
     // ================= Recording =================
@@ -233,7 +246,8 @@ public:
     // stored start and end), works out the offset
     // (Recording::getOffsetBetween) and attaches it with source Panopto.
     // RecordingNotReady if none overlaps (Panopto is still processing, or
-    // the lecture was not recorded); nothing changes then.
+    // the lecture was not recorded); RecordingOffsetInvalid if the match is
+    // more than a day off (bad Panopto data). Nothing changes on an error.
     Result<Session> matchRecording(int sessionId,
                                    const std::vector<RecordingCandidate>& candidates);
 

@@ -2,12 +2,12 @@
 // model, the server, the protocol and the app. Plain C++ (no Qt).
 //
 // The model returns an Error (None = it worked). The server sends its code
-// text ("QuestionTooLong") in an "error" message. The VIEW turns it into a
-// sentence (view/viewtext.h); nobody else writes user-facing text.
+// text ("QuestionTooLong") in the failed reply's "code". The VIEW turns it
+// into a sentence (client/viewtext.h); nobody else writes user-facing text.
 //
 // Owner: Model layer. Adding a value = add it here, in getErrorCode(), in
-// ViewText::getErrorText() (View owner) and in CONTRACT.md 9.4. Rule numbers
-// refer to CONTRACT.md.
+// ViewText::getErrorText() (View owner). Rule numbers (U1, S9, ...) refer
+// to REQUIREMENTS.md.
 //
 // "NoSuch..." is also the answer when the thing exists but the user may not
 // know that (not a member of the course): the server never confirms that a
@@ -26,6 +26,7 @@ enum class Error {
     UnknownRequest,  // "type" is not in the catalogue
     NotLoggedIn,     // U9
     StorageError,    // the database refused; should never happen
+    ServerUnreachable,  // app only: no connection to the server, or it didn't answer in time
 
     // ---- Accounts (U rules) ----
     EmptyName,
@@ -58,7 +59,7 @@ enum class Error {
     NoSuchSessionCode,    // unknown code, or that session has ended (S5)
     CourseHasLiveSession, // S3
     SessionEnded,         // I2, I6 (freeze), S7
-    SessionNotEnded,      // still live: A1 (answer), I7 (moderate), R1 (recording), S11 (publish)
+    SessionNotEnded,      // still live: A1 (answer), I7 (moderate), R1 (recording), S9 (delete), S11 (publish)
     SessionNotPublished,  // S12: a student asked for a session that is still in review
     SessionAlreadyPublished,  // S11
 
@@ -80,6 +81,17 @@ enum class Error {
     RecordingUrlInvalid,
     RecordingOffsetInvalid,
     RecordingNotReady,  // R6: no Panopto recording overlaps the session (yet)
+    PanoptoFolderInvalid,  // R6: not a Panopto folder id
+    // App only (the Panopto side of "Find recording" runs in the app):
+    PanoptoNotConfigured,  // this copy of the app has no Panopto client id
+    PanoptoSignInFailed,   // the SCU sign-in was cancelled or failed
+    PanoptoLinkInvalid,    // the pasted text is not a Panopto lecture link
+    PanoptoUnreachable,    // Panopto didn't answer
+    PanoptoFolderNotLinked,  // "Find recording" before the course's folder was linked
+    PanoptoPortBusy,         // another program uses the sign-in port (8080)
+    PanoptoNoAccess,         // Panopto says this account may not see that lecture/folder
+    TeachesCourse,           // U8: deleting the account while you are still a course's educator
+    // Keep this last: the error table's size is checked against it.
 };
 
 // The stable text sent over the network: exactly the enumerator's name,

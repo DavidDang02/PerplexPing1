@@ -62,13 +62,15 @@ public:
     std::string getLinkAt(long long sessionSeconds) const;
 
     // ---- Auto-match (R6) ----
-    // Index of the first candidate whose [start, start + duration] overlaps
-    // [sessionStart, sessionEnd], or -1 if none does.
+    // Index of the candidate whose [start, start + duration] overlaps
+    // [sessionStart, sessionEnd] the most (tie: the closest start), or -1
+    // if none does.
     static int findOverlapping(const std::vector<RecordingCandidate>& candidates,
                                Clock::time_point sessionStart, Clock::time_point sessionEnd);
 
     // Offset for a session that started at sessionStart, in a recording that
-    // started at recordingStart (whole seconds).
+    // started at recordingStart (whole seconds). Not limited: check it with
+    // Validation::checkRecordingOffset before saving.
     static long long getOffsetBetween(Clock::time_point recordingStart,
                                       Clock::time_point sessionStart);
 

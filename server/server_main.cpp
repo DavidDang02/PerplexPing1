@@ -8,6 +8,7 @@
 
 #include "database.h"
 #include "perplexserver.h"
+#include "protocol.h"
 
 // Resolve a host string (an IP literal like "127.0.0.1"/"::1", a hostname like
 // "localhost", or "0.0.0.0" for every interface) to a QHostAddress. An empty
@@ -61,7 +62,7 @@ int main(int argc, char* argv[]) {
   parser.process(app);
 
   // ---- Port ----
-  int port = 8081;
+  int port = Protocol::kDefaultPort;
   if (parser.isSet(portOption)) {
     bool ok = false;
     port = parser.value(portOption).toInt(&ok);

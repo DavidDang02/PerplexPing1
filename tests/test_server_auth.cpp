@@ -31,7 +31,13 @@ TEST_CASE("Server: register then login round-trips over WebSocket with password 
     QEventLoop waitLoop;
 
     QObject::connect(&socket, &QWebSocket::connected, &connectLoop, &QEventLoop::quit);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QObject::connect(&socket, &QWebSocket::errorOccurred, &connectLoop, &QEventLoop::quit);
+#else
+    // Qt 6.4 (Ubuntu 24.04, the CI image) names this signal error().
+    QObject::connect(&socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error),
+                     &connectLoop, &QEventLoop::quit);
+#endif
     QObject::connect(&socket, &QWebSocket::textMessageReceived, &waitLoop,
                      [&](const QString& message) {
                          const QJsonDocument doc = QJsonDocument::fromJson(message.toUtf8());

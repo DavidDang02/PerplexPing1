@@ -55,8 +55,8 @@ public:
     // True if userId is this course's educator (userId != 0).
     bool isEducator(int userId) const;
 
-    // Ids of the students (CourseMembers rows) and of the sessions, oldest
-    // first. Reloaded from the database each time; the tables are the
+    // Ids of the students (CourseMembers rows, in the order they joined) and of the
+    // sessions (newest first, like the course page). Reloaded from the database each time; the tables are the
     // source of truth, these lists are a copy.
     const std::vector<int>& getStudentIds() const;
     void setStudentIds(std::vector<int> ids);
@@ -71,6 +71,13 @@ public:
     int getLiveSessionId() const;
     void setLiveSessionId(int sessionId);
 
+    // The Panopto folder that holds this course's lecture recordings (its
+    // id, a GUID), so "Find recording" knows where to look (R6). Empty until
+    // the educator links one.
+    const std::string& getPanoptoFolderId() const;
+    void setPanoptoFolderId(const std::string& folderId);
+    bool hasPanoptoFolder() const;
+
 private:
     int id = 0;
     std::string name;
@@ -82,6 +89,7 @@ private:
     std::vector<int> sessionIds;
     CourseRole role = CourseRole::None;
     int liveSessionId = 0;
+    std::string panoptoFolderId;
 };
 
 // A course page: the course and one line per session, newest first.

@@ -1,6 +1,44 @@
 #include "session.h"
 
+#include "validation.h"
+
 #include <algorithm>
+
+namespace {
+// Time order, then id (session.h: "by time, then id"), so a list stays in
+// order however its items arrive (loaders, live pushes out of order).
+template <typename Item>
+bool isBefore(const Item& a, const Item& b) {
+    if (a.getTime() != b.getTime()) {
+        return a.getTime() < b.getTime();
+    }
+    return a.getId() < b.getId();
+}
+
+template <typename Item>
+void sortByTimeThenId(std::vector<Item>& items) {
+    std::stable_sort(items.begin(), items.end(), isBefore<Item>);
+}
+
+// Puts one item in its place in an already sorted list (no full re-sort,
+// so a lecture with thousands of presses stays fast).
+template <typename Item>
+void insertInOrder(std::vector<Item>& items, const Item& item) {
+    items.insert(std::upper_bound(items.begin(), items.end(), item, isBefore<Item>), item);
+}
+
+// Replaces the item with the same id (its time may have changed) or adds it,
+// keeping the order.
+template <typename Item>
+void upsertInOrder(std::vector<Item>& items, const Item& item) {
+    const auto same = std::find_if(items.begin(), items.end(),
+                                   [&](const Item& existing) { return existing.getId() == item.getId(); });
+    if (same != items.end()) {
+        items.erase(same);
+    }
+    insertInOrder(items, item);
+}
+}  // namespace
 
 Session::Session() : startTime(Clock::now()), status(SessionStatus::Live) {}
 
@@ -32,7 +70,8 @@ Session::Clock::time_point Session::getStartTime() const { return this->startTim
 
 Session::Clock::time_point Session::getEndTime() const { return this->endTime; }
 
-bool Session::isEnded() const { return this->endTime != Clock::time_point{}; }
+// The status says where the session is (S11), even with a zero end time.
+bool Session::isEnded() const { return this->status != SessionStatus::Live; }
 bool Session::isLive() const { return !this->isEnded(); }
 
 SessionStatus Session::getStatus() const { return this->status; }
@@ -89,7 +128,7 @@ bool Session::addLostPing(const LostPing& ping) {
     if (!this->isLive()) {
         return false;
     }
-    this->lostPings.push_back(ping);
+    insertInOrder(this->lostPings, ping);
     return true;
 }
 
@@ -97,7 +136,7 @@ bool Session::addQuestion(const SessionQuestion& question) {
     if (!this->isLive()) {
         return false;
     }
-    this->questions.push_back(question);
+    insertInOrder(this->questions, question);
     return true;
 }
 
@@ -106,25 +145,27 @@ bool Session::lostButtonClicked() {
 }
 
 bool Session::askQuestion(const std::string& text) {
-    return this->addQuestion(SessionQuestion(Clock::now(), text));
+    // I3: same check as AppModel (trimmed, 1-500 characters).
+    const std::string trimmed = Validation::trim(text);
+    if (Validation::checkQuestion(trimmed) != Error::None) {
+        return false;
+    }
+    return this->addQuestion(SessionQuestion(Clock::now(), trimmed));
 }
+
 
 void Session::setLostPings(std::vector<LostPing> pings) {
     this->lostPings = std::move(pings);
+    sortByTimeThenId(this->lostPings);
 }
 
 void Session::setQuestions(std::vector<SessionQuestion> questions) {
     this->questions = std::move(questions);
+    sortByTimeThenId(this->questions);
 }
 
 void Session::upsertLostPing(const LostPing& ping) {
-    for (auto& p : this->lostPings) {
-        if (p.getId() == ping.getId()) {
-            p = ping;
-            return;
-        }
-    }
-    this->lostPings.push_back(ping);
+    upsertInOrder(this->lostPings, ping);
 }
 
 bool Session::removeLostPing(int pingId) {
@@ -138,13 +179,7 @@ bool Session::removeLostPing(int pingId) {
 }
 
 void Session::upsertQuestion(const SessionQuestion& question) {
-    for (auto& q : this->questions) {
-        if (q.getId() == question.getId()) {
-            q = question;
-            return;
-        }
-    }
-    this->questions.push_back(question);
+    upsertInOrder(this->questions, question);
 }
 
 bool Session::removeQuestion(int questionId) {

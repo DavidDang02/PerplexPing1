@@ -2,9 +2,12 @@
 
 #include "database.h"
 #include "error.h"
+#include "recording.h"
 
 #include <QCoreApplication>
 #include <QSqlError>
+#include <QSqlQuery>
+#include <QTemporaryDir>
 
 using namespace std::chrono;
 
@@ -193,5 +196,374 @@ TEST_CASE("Count live sessions hosted by new user") {
     // No sessions hosted yet
     count = db.countLiveSessionsHostedBy(created.value.getId());
     CHECK(count == 0);
+}
+}
+TEST_SUITE("Database items [F2-F4]") {
+namespace {
+// A course with an educator (prof) and two students, and one session.
+struct Lecture {
+    Database db{":memory:"};
+    int prof = 0, ana = 0, bob = 0, courseId = 0, sessionId = 0;
+    system_clock::time_point t0 = system_clock::time_point(seconds(1700000000));
+
+    Lecture() {
+        REQUIRE(db.open().isOk());
+        prof = db.createUser("prof", "prof@scu.edu", "h", "s", 1, t0).value.getId();
+        ana = db.createUser("ana", "ana@scu.edu", "h", "s", 1, t0).value.getId();
+        bob = db.createUser("bob", "bob@scu.edu", "h", "s", 1, t0).value.getId();
+        courseId = db.createCourse("CSCI 187", "K7M2QX", false, true, prof, t0).value.getId();
+        REQUIRE(db.addStudent(courseId, ana, t0).isOk());
+        REQUIRE(db.addStudent(courseId, bob, t0).isOk());
+        sessionId = db.createSession(courseId, prof, "Lecture 1", "123456", t0).value.getId();
+        REQUIRE(sessionId > 0);
+    }
+};
+}  // namespace
+
+TEST_CASE("Loaded pings and questions carry the author's name") {
+    Lecture l;
+    REQUIRE(l.db.addLostPing(l.sessionId, l.ana, l.t0 + seconds(10)).isOk());
+    const auto added = l.db.addQuestion(l.sessionId, l.bob, l.t0 + seconds(20), "Why?");
+    REQUIRE(added.isOk());
+    CHECK(added.value.getAuthorName() == "bob");  // also on the object add* returns
+
+    const auto session = l.db.loadSession(l.sessionId);
+    REQUIRE(session.isOk());
+    REQUIRE(session.value.getLostPings().size() == 1);
+    CHECK(session.value.getLostPings()[0].getAuthorName() == "ana");
+    REQUIRE(session.value.getQuestions().size() == 1);
+    CHECK(session.value.getQuestions()[0].getAuthorName() == "bob");
+}
+
+TEST_CASE("Educator answers load first and are marked byEducator (A5)") {
+    Lecture l;
+    const int q = l.db.addQuestion(l.sessionId, l.ana, l.t0 + seconds(20), "Why?").value.getId();
+    REQUIRE(l.db.setSessionEnd(l.sessionId, l.t0 + seconds(3600)).isOk());
+    const auto student = l.db.addAnswer(q, l.bob, "student guess", l.t0 + seconds(3700));
+    const auto educator = l.db.addAnswer(q, l.prof, "real answer", l.t0 + seconds(3800));
+    REQUIRE(student.isOk());
+    REQUIRE(educator.isOk());
+    CHECK_FALSE(student.value.isByEducator());
+    CHECK(educator.value.isByEducator());
+
+    const auto question = l.db.getQuestion(q);
+    REQUIRE(question.isOk());
+    REQUIRE(question.value.getAnswers().size() == 2);
+    CHECK(question.value.getAnswers()[0].getText() == "real answer");
+    CHECK(question.value.getAnswers()[0].getAuthorName() == "prof");
+    CHECK(question.value.getAnswers()[1].getAuthorName() == "bob");
+}
+
+TEST_CASE("An edited answer loads its edit time") {
+    Lecture l;
+    const int q = l.db.addQuestion(l.sessionId, l.ana, l.t0, "Why?").value.getId();
+    const int a = l.db.addAnswer(q, l.prof, "first", l.t0 + seconds(5)).value.getId();
+    REQUIRE(l.db.updateAnswerText(a, "second", l.t0 + seconds(9)).isOk());
+    const auto answer = l.db.getAnswer(a);
+    REQUIRE(answer.isOk());
+    CHECK(answer.value.getText() == "second");
+    REQUIRE(answer.value.getEditedTime().has_value());
+    CHECK(*answer.value.getEditedTime() == l.t0 + seconds(9));
+}
+
+TEST_CASE("Deleting a user keeps their items as 'Deleted user' (U8)") {
+    Lecture l;
+    REQUIRE(l.db.addLostPing(l.sessionId, l.ana, l.t0).isOk());
+    const int q = l.db.addQuestion(l.sessionId, l.ana, l.t0, "Why?").value.getId();
+    REQUIRE(l.db.deleteUser(l.ana).isOk());
+
+    const auto session = l.db.loadSession(l.sessionId);
+    REQUIRE(session.isOk());
+    REQUIRE(session.value.getLostPings().size() == 1);
+    CHECK(session.value.getLostPings()[0].getAuthorState() == AuthorState::Deleted);
+    CHECK(l.db.getQuestion(q).value.getAuthorState() == AuthorState::Deleted);
+}
+
+TEST_CASE("Ending or publishing twice is false, not an error") {
+    Lecture l;
+    CHECK(l.db.setSessionEnd(l.sessionId, l.t0 + seconds(60)).value);
+    const auto again = l.db.setSessionEnd(l.sessionId, l.t0 + seconds(61));
+    REQUIRE(again.isOk());
+    CHECK_FALSE(again.value);
+    CHECK(l.db.setSessionPublished(l.sessionId, l.t0 + seconds(70)).value);
+    const auto republish = l.db.setSessionPublished(l.sessionId, l.t0 + seconds(71));
+    REQUIRE(republish.isOk());
+    CHECK_FALSE(republish.value);
+}
+
+TEST_CASE("Deleting a session removes its items (cascade)") {
+    Lecture l;
+    const int ping = l.db.addLostPing(l.sessionId, l.ana, l.t0).value.getId();
+    const int q = l.db.addQuestion(l.sessionId, l.ana, l.t0, "Why?").value.getId();
+    REQUIRE(l.db.deleteSession(l.sessionId).isOk());
+    CHECK_FALSE(l.db.getLostPing(ping).isOk());
+    CHECK_FALSE(l.db.getQuestion(q).isOk());
+}
+
+TEST_CASE("A course has at most one live session, and live codes are unique (S3, S4)") {
+    Lecture l;
+    CHECK_FALSE(l.db.createSession(l.courseId, l.prof, "Again", "654321", l.t0).isOk());
+    const int other = l.db.createCourse("Other", "ABCDEF", false, true, l.prof, l.t0).value.getId();
+    CHECK_FALSE(l.db.createSession(other, l.prof, "Same code", "123456", l.t0).isOk());
+    REQUIRE(l.db.findLiveSessionByJoinCode("123456").isOk());
+    REQUIRE(l.db.setSessionEnd(l.sessionId, l.t0 + seconds(60)).value);
+    CHECK_FALSE(l.db.findLiveSessionByJoinCode("123456").isOk());
+    CHECK(l.db.createSession(l.courseId, l.prof, "Next", "123456", l.t0).isOk());
+}
+
+TEST_CASE("Lost pings: list, latest time, delete") {
+    Lecture l;
+    REQUIRE(l.db.addLostPing(l.sessionId, l.ana, l.t0 + seconds(20)).isOk());
+    const int first = l.db.addLostPing(l.sessionId, l.ana, l.t0 + seconds(10)).value.getId();
+    REQUIRE(l.db.addLostPing(l.sessionId, l.bob, l.t0 + seconds(30)).isOk());
+    const auto pings = l.db.listLostPings(l.sessionId).value;
+    REQUIRE(pings.size() == 3);
+    CHECK(pings[0].getId() == first);  // by time, not by insert order
+    CHECK(*l.db.getLastLostTime(l.sessionId, l.ana).value == l.t0 + seconds(20));
+    CHECK_FALSE(l.db.getLastLostTime(l.sessionId, l.prof).value.has_value());
+    CHECK(l.db.deleteLostPing(first).value);
+    CHECK_FALSE(l.db.deleteLostPing(first).value);
+    CHECK(l.db.listLostPings(l.sessionId).value.size() == 2);
+}
+
+TEST_CASE("Questions: list, edit, delete") {
+    Lecture l;
+    const int q = l.db.addQuestion(l.sessionId, l.ana, l.t0 + seconds(5), "why?").value.getId();
+    REQUIRE(l.db.addQuestion(l.sessionId, l.bob, l.t0 + seconds(9), "how?").isOk());
+    CHECK(l.db.updateQuestionText(q, "why though?", l.t0 + seconds(7)).value);
+    auto questions = l.db.listQuestions(l.sessionId).value;
+    REQUIRE(questions.size() == 2);
+    CHECK(questions[0].getText() == "why though?");
+    CHECK(questions[0].isEdited());
+    CHECK(l.db.deleteQuestion(q).value);
+    CHECK_FALSE(l.db.updateQuestionText(q, "gone", l.t0).value);
+    CHECK(l.db.listQuestions(l.sessionId).value.size() == 1);
+}
+
+TEST_CASE("The course's session list has whole-class counts, newest first") {
+    Lecture l;
+    REQUIRE(l.db.addLostPing(l.sessionId, l.ana, l.t0).isOk());
+    REQUIRE(l.db.addLostPing(l.sessionId, l.bob, l.t0).isOk());
+    REQUIRE(l.db.addQuestion(l.sessionId, l.bob, l.t0, "?").isOk());
+    REQUIRE(l.db.setSessionEnd(l.sessionId, l.t0 + seconds(60)).value);
+    const int later = l.db.createSession(l.courseId, l.prof, "Lecture 2", "222222", l.t0 + hours(48)).value.getId();
+    const auto rows = l.db.listSessionsForCourse(l.courseId).value;
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[0].id == later);
+    CHECK(rows[1].lostCount == 2);
+    CHECK(rows[1].questionCount == 1);
+    CHECK_FALSE(rows[1].hasRecording);
+}
+
+TEST_CASE("Rename, attach and remove a recording") {
+    Lecture l;
+    CHECK(l.db.renameSession(l.sessionId, "Joins").value);
+    CHECK(l.db.getSession(l.sessionId).value.getName() == "Joins");
+    REQUIRE(l.db.setSessionEnd(l.sessionId, l.t0 + seconds(60)).value);
+    REQUIRE(l.db.setRecording(l.sessionId, Recording("https://scu.hosted.panopto.com/v?id=a", -30)).value);
+    auto loaded = l.db.getSession(l.sessionId).value;
+    REQUIRE(loaded.getRecording() != nullptr);
+    CHECK(loaded.getRecording()->getOffsetSeconds() == -30);
+    CHECK(l.db.clearRecording(l.sessionId).value);
+    CHECK(l.db.getSession(l.sessionId).value.getRecording() == nullptr);
+}
+
+TEST_CASE("Courses: find by code, list, update, role, delete with everything") {
+    Lecture l;
+    CHECK(l.db.findCourseByJoinCode("K7M2QX", l.ana).value.getRole() == CourseRole::Student);
+    CHECK(l.db.getRole(l.courseId, l.prof) == CourseRole::Educator);
+    CHECK(l.db.getRole(l.courseId, l.ana) == CourseRole::Student);
+    REQUIRE(l.db.createCourse("ART 11", "ZZZZZ2", false, true, l.ana, l.t0).isOk());
+    const auto anas = l.db.listCoursesForUser(l.ana).value;
+    REQUIRE(anas.size() == 2);
+    CHECK(anas[0].getName() == "ART 11");  // by name
+    CHECK(l.db.updateCourse(l.courseId, "CSCI 187L", true, false).value);
+    const auto updated = l.db.getCourse(l.courseId, l.prof).value;
+    CHECK(updated.getName() == "CSCI 187L");
+    CHECK(updated.isAnonymous());
+    CHECK_FALSE(updated.areQuestionsShared());
+    REQUIRE(l.db.addQuestion(l.sessionId, l.ana, l.t0, "?").isOk());
+    CHECK(l.db.deleteCourse(l.courseId).value);
+    CHECK_FALSE(l.db.getSession(l.sessionId).isOk());
+    CHECK(l.db.getRole(l.courseId, l.ana) == CourseRole::None);
+    CHECK_FALSE(l.db.deleteCourse(l.courseId).value);
+}
+
+TEST_CASE("A course whose educator deleted their account has no educator") {
+    Lecture l;
+    REQUIRE(l.db.deleteUser(l.prof).value);
+    CHECK(l.db.getRole(l.courseId, 0) == CourseRole::None);
+    CHECK(l.db.getCourse(l.courseId, 0).value.getRole() == CourseRole::None);
+    CHECK(l.db.getCourse(l.courseId, l.ana).value.getRole() == CourseRole::Student);
+    CHECK_FALSE(l.db.deleteUser(l.prof).value);
+}
+
+TEST_CASE("A corrupt time in a row doesn't crash the server") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("corrupt.db");
+    int sessionId = 0;
+    {
+        Database db(path);
+        REQUIRE(db.open().isOk());
+        const auto t = system_clock::now();
+        const int prof = db.createUser("prof", "prof@scu.edu", "h", "s", 1, t).value.getId();
+        const int course = db.createCourse("C", "K7M2QX", false, true, prof, t).value.getId();
+        sessionId = db.createSession(course, prof, "L", "123456", t).value.getId();
+    }
+    {
+        QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "corrupt-file");
+        raw.setDatabaseName(path);
+        REQUIRE(raw.open());
+        QSqlQuery q(raw);
+        REQUIRE(q.exec("UPDATE Sessions SET start_date = 'garbage';"));
+        raw.close();
+    }
+    QSqlDatabase::removeDatabase("corrupt-file");
+    Database db(path);
+    REQUIRE(db.open().isOk());
+    CHECK(db.getSession(sessionId).isOk());
+}
+
+TEST_CASE("Two Database objects on one file work side by side") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    Database a(dir.filePath("shared.db"));
+    Database b(dir.filePath("shared.db"));
+    REQUIRE(a.open().isOk());
+    REQUIRE(b.open().isOk());
+    REQUIRE(a.createUser("ana", "ana@scu.edu", "h", "s", 1, system_clock::now()).isOk());
+    CHECK(b.findUserByName("ana").isOk());
+}
+}
+
+TEST_SUITE("Database files") {
+TEST_CASE("An old M2 database file is refused, not stamped v2 and broken") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("perplexping.db");
+    {
+        // The M2 app's tables (plain-text user_password, no courses).
+        QSqlDatabase m2 = QSqlDatabase::addDatabase("QSQLITE", "m2-file");
+        m2.setDatabaseName(path);
+        REQUIRE(m2.open());
+        QSqlQuery q(m2);
+        REQUIRE(q.exec("CREATE TABLE Users (user_id INTEGER PRIMARY KEY, user_name TEXT, user_password TEXT);"));
+        REQUIRE(q.exec("INSERT INTO Users (user_name, user_password) VALUES ('old', 'pw');"));
+        m2.close();
+    }
+    QSqlDatabase::removeDatabase("m2-file");
+
+    {
+        Database db(path);
+        CHECK_FALSE(db.open().isOk());
+    }
+    // The file is untouched: still version 0, old row still there.
+    {
+        QSqlDatabase check = QSqlDatabase::addDatabase("QSQLITE", "m2-check");
+        check.setDatabaseName(path);
+        REQUIRE(check.open());
+        QSqlQuery q(check);
+        REQUIRE(q.exec("PRAGMA user_version;"));
+        REQUIRE(q.next());
+        CHECK(q.value(0).toInt() == 0);
+        REQUIRE(q.exec("SELECT user_password FROM Users;"));
+        CHECK(q.next());
+        check.close();
+    }
+    QSqlDatabase::removeDatabase("m2-check");
+}
+
+TEST_CASE("A file with someone else's tables is refused") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("other.db");
+    {
+        QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "other-file");
+        raw.setDatabaseName(path);
+        REQUIRE(raw.open());
+        QSqlQuery q(raw);
+        REQUIRE(q.exec("CREATE TABLE Users (id INTEGER PRIMARY KEY, name TEXT);"));
+        REQUIRE(q.exec("CREATE TABLE Notes (id INTEGER PRIMARY KEY);"));
+        raw.close();
+    }
+    QSqlDatabase::removeDatabase("other-file");
+    Database db(path);
+    CHECK_FALSE(db.open().isOk());
+}
+
+TEST_CASE("A file from a newer version is refused") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("newer.db");
+    {
+        Database db(path);
+        REQUIRE(db.open().isOk());
+    }
+    {
+        QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "newer-file");
+        raw.setDatabaseName(path);
+        REQUIRE(raw.open());
+        QSqlQuery q(raw);
+        REQUIRE(q.exec("PRAGMA user_version = 3;"));
+        raw.close();
+    }
+    QSqlDatabase::removeDatabase("newer-file");
+    Database db(path);
+    CHECK_FALSE(db.open().isOk());
+}
+
+TEST_CASE("A new file is created at v2 and opens again") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("fresh.db");
+    {
+        Database db(path);
+        REQUIRE(db.open().isOk());
+        CHECK(db.getSchemaVersion() == 2);
+        REQUIRE(db.createUser("ana", "ana@scu.edu", "h", "s", 1, system_clock::now()).isOk());
+    }
+    Database again(path);
+    REQUIRE(again.open().isOk());
+    CHECK(again.findUserByName("ana").isOk());
+}
+
+TEST_CASE("A v2 file from before the Panopto folder column gets it added, rows kept") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("older.db");
+    int courseId = 0;
+    {
+        Database db(path);
+        REQUIRE(db.open().isOk());
+        const auto prof = db.createUser("prof", "prof@scu.edu", "h", "s", 1, system_clock::now());
+        REQUIRE(prof.isOk());
+        const auto course = db.createCourse("CSCI 187", "K7M2QX", false, true, prof.value.getId(), system_clock::now());
+        REQUIRE(course.isOk());
+        courseId = course.value.getId();
+    }
+    {
+        // Make it look like a file from Nov 26: no panopto_folder_id column.
+        QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "older-file");
+        raw.setDatabaseName(path);
+        REQUIRE(raw.open());
+        QSqlQuery q(raw);
+        REQUIRE(q.exec("ALTER TABLE Courses DROP COLUMN panopto_folder_id;"));
+        raw.close();
+    }
+    QSqlDatabase::removeDatabase("older-file");
+
+    Database db(path);
+    REQUIRE(db.open().isOk());
+    const auto loaded = db.getCourse(courseId, 0);
+    REQUIRE(loaded.isOk());
+    CHECK(loaded.value.getName() == "CSCI 187");
+    CHECK_FALSE(loaded.value.hasPanoptoFolder());
+    REQUIRE(db.setPanoptoFolder(courseId, "1b2c3d4e-0000-4a5b-8c9d-0123456789ab").value);
+    CHECK(db.getCourse(courseId, 0).value.getPanoptoFolderId() == "1b2c3d4e-0000-4a5b-8c9d-0123456789ab");
+    REQUIRE(db.setPanoptoFolder(courseId, "").isOk());
+    CHECK_FALSE(db.getCourse(courseId, 0).value.hasPanoptoFolder());
+    // The added column keeps the same 64-character limit as a new file's.
+    CHECK_FALSE(db.setPanoptoFolder(courseId, std::string(65, 'a')).isOk());
 }
 }

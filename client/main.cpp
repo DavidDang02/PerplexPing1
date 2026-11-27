@@ -1,98 +1,69 @@
-// Entry point for the app. This file must NEVER be listed in the test_build
-// target in CMakeLists.txt — tests/test_main.cpp has its own main(), and
-// having two main() functions will fail to link ("duplicate main").
+// Entry point for the app. This file must NEVER be listed in a test target
+// in CMakeLists.txt: tests/test_main.cpp has its own main(), and two main()
+// functions fail to link ("duplicate main").
+//
+//   ./app                      connects to ws://localhost:8081
+//   ./app --host 10.0.0.5      another computer running perplexing_server
+//   ./app --port 9000
+
+#include <memory>
 
 #include <QApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QMessageBox>
+#include <QUrl>
 
 #include "appcontroller.h"
-#include "appmodel.h"
-#include "database.h"
-#include "loginpage.h"
-#include "mainpage.h"
+#include "mainwindow.h"
+#include "panoptooauthclient.h"
+#include "protocol.h"
 #include "serverclient.h"
-#include "sessionpage.h"
 
 int main(int argc, char* argv[]) {
-  QApplication app(argc, argv);
-  QApplication::setApplicationName("perplexping");
-  QApplication::setApplicationVersion("1.0");
+    QApplication app(argc, argv);
+    QApplication::setApplicationName("PerplexPing");
+    QApplication::setApplicationVersion("1.0");
 
-  QCommandLineParser parser;
-  parser.setApplicationDescription(
-      "PerplexPing client — talks to the central server over WebSocket.");
-  parser.addHelpOption();     // -h, --help
-  parser.addVersionOption();  // -v, --version
+    QCommandLineParser parser;
+    parser.setApplicationDescription("PerplexPing: tell your instructor when you're lost.");
+    parser.addHelpOption();
+    parser.addVersionOption();
+    QCommandLineOption hostOption("host", "Server hostname or IP. Default: localhost.", "address", "localhost");
+    QCommandLineOption portOption("port", QString("Server port. Default: %1.").arg(Protocol::kDefaultPort),
+                                  "port", QString::number(Protocol::kDefaultPort));
+    parser.addOption(hostOption);
+    parser.addOption(portOption);
+    parser.process(app);
 
-  QCommandLineOption hostOption(
-      "host",
-      "Server hostname or IP to connect to (e.g. [IP_ADDRESS] or localhost). "
-      "Default: localhost.",
-      "address");
-  QCommandLineOption portOption(
-      "port", "Server WebSocket port (1-65535). Default: 8081.", "port");
-  QCommandLineOption timeoutOption(
-      "connect-timeout",
-      "Milliseconds to wait for the WebSocket connection (1-30000). "
-      "Default: 5000.",
-      "ms");
-  parser.addOption(hostOption);
-  parser.addOption(portOption);
-  parser.addOption(timeoutOption);
-
-  parser.process(app);
-
-  // ---- Port ----
-  int port = 8081;
-  if (parser.isSet(portOption)) {
     bool ok = false;
-    port = parser.value(portOption).toInt(&ok);
+    const int port = parser.value(portOption).toInt(&ok);
     if (!ok || port < 1 || port > 65535) {
-      QMessageBox::critical(nullptr, "PerplexPing",
-                            "Invalid port: " + parser.value(portOption) +
-                            " — must be an integer from 1 to 65535.");
-      return 1;
+        QMessageBox::critical(nullptr, "PerplexPing",
+                              "The port must be a number from 1 to 65535, not \"" +
+                                  parser.value(portOption) + "\".");
+        return 1;
     }
-  }
+    QUrl url;
+    url.setScheme("ws");
+    url.setHost(parser.value(hostOption));
+    url.setPort(port);
 
-  // ---- Host ----
-  const QString host = parser.isSet(hostOption)
-                           ? parser.value(hostOption)
-                           : "localhost";
-
-  // ---- Connect timeout ----
-  int connectTimeoutMs = 5000;
-  if (parser.isSet(timeoutOption)) {
-    bool ok = false;
-    connectTimeoutMs = parser.value(timeoutOption).toInt(&ok);
-    if (!ok || connectTimeoutMs < 1 || connectTimeoutMs > 30000) {
-      QMessageBox::critical(nullptr, "PerplexPing",
-                            "Invalid connect-timeout: " +
-                            parser.value(timeoutOption) +
-                            " — must be an integer from 1 to 30000.");
-      return 1;
+    // The app keeps running if the server isn't up yet: it shows
+    // "Can't reach the server" and connects as soon as it can.
+    ServerClient client(url);
+    // Panopto is optional: without PANOPTO_HOST and PANOPTO_CLIENT_ID (in
+    // the environment or .env) the app runs and "Find recording" says
+    // Panopto isn't set up; pasting a link still works.
+    const PanoptoOAuthClient::Settings panoptoSettings = PanoptoOAuthClient::loadSettings();
+    std::unique_ptr<PanoptoOAuthClient> panopto;
+    if (panoptoSettings.isComplete()) {
+        panopto = std::make_unique<PanoptoOAuthClient>(panoptoSettings);
     }
-  }
+    AppController controller(&client, panopto.get());
+    MainWindow window(&controller);
+    window.show();
+    client.start();
 
-  const QString url = "ws://" + host + ":" + QString::number(port);
-
-  // The client talks to the central server over WebSocket. If the server is
-  // not reachable, the app shows a generic connection error and exits.
-  ServerClient client(url, connectTimeoutMs);
-  if (!client.isConnected()) {
-    QMessageBox::critical(nullptr, "PerplexPing",
-                          "Could not connect to the PerplexPing server at " +
-                          url + ".");
-    return 1;
-  }
-
-  LoginPage loginPage;
-  MainPage mainPage;
-  SessionPage sessionPage;
-  AppModel model(&client);
-  AppController controller(&model, &loginPage, &mainPage, &sessionPage);
-
-  return app.exec();
+    return app.exec();
 }

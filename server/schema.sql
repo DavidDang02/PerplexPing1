@@ -52,7 +52,10 @@ CREATE TABLE Courses (
     -- educator here" = (educator_id = me). NULL if that account was deleted;
     -- the course then stays, read-only.
     educator_id       INTEGER REFERENCES Users (user_id) ON DELETE SET NULL,
-    created_time      TEXT    NOT NULL
+    created_time      TEXT    NOT NULL,
+    -- The course's Panopto folder, linked once by the educator for "Find
+    -- recording" (rule R6). NULL until linked. Sent only to the educator.
+    panopto_folder_id TEXT    CHECK (panopto_folder_id IS NULL OR length(panopto_folder_id) <= 64)
 );
 
 -- The STUDENTS of each course (joined with the course code). The educator

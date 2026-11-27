@@ -256,7 +256,8 @@ TEST_CASE("AppModel Server Inputs: lost pings, questions, moderation, and answer
     CHECK(student.deleteAnswer(studentAns.value.answerId).isOk());
 
     // Educator moderation: delete question after session end (I7)
-    CHECK(student.deleteQuestion(questionId).error == Error::NotCourseEducator);
+    // (the student wrote it, so the live freeze is the reason: SessionEnded)
+    CHECK(student.deleteQuestion(questionId).error == Error::SessionEnded);
     const auto modDel = educator.deleteQuestion(questionId);
     REQUIRE(modDel.isOk());
     CHECK(modDel.value.byModerator);

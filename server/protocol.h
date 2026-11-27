@@ -4,11 +4,14 @@
 // server. Uses Qt Core only (QJson...), no sockets.
 //
 // Every message is one JSON object with a "type":
-//     app -> server   {"type":"addQuestion","sessionId":7,"text":"why?"}
-//     server -> app   {"type":"inputAdded","sessionId":7,"input":{...}}
-// The full catalogue (fields, who may send, who receives) is CONTRACT.md
-// section 6. This header is its code form: use these constants, never a
-// string typed by hand, so a typo is a compile error.
+//     request  app -> server   {"id":3,"type":"addQuestion","sessionId":7,"text":"why?"}
+//     reply    server -> app   {"id":3,"type":"addQuestion","ok":true,"data":{...question...}}
+//                              {"id":3,"type":"addQuestion","ok":false,"error":"QuestionTooLong","code":"QuestionTooLong"}
+//     push     server -> app   {"type":"questionAdded","sessionId":7,"question":{...}}   (never has "ok")
+// A reply's type is the REQUEST's type; the Reply:: names below are the
+// pushes (plus hello/error). The full catalogue is CONTRACT.md section 6.
+// This header is its code form: use these constants, never a string typed
+// by hand, so a typo is a compile error.
 //
 // JSON conventions:
 //   * ids are integers; 0 means "none / hidden"
@@ -44,8 +47,8 @@ namespace Protocol {
 
 // Sent in "hello". Bump when a message changes shape.
 inline constexpr int kVersion = 2;
-inline constexpr quint16 kDefaultPort = 12345;
-inline const QString kDefaultServer = QStringLiteral("ws://localhost:12345");
+inline constexpr quint16 kDefaultPort = 8081;  // same as server_main / main
+inline const QString kDefaultServer = QStringLiteral("ws://localhost:8081");
 // The server drops any message longer than this (bytes).
 inline constexpr int kMaxMessageBytes = 64 * 1024;
 // "checkRecording" carries at most this many candidates (newest first).
@@ -66,6 +69,7 @@ inline const QString kJoinCourse = QStringLiteral("joinCourse");
 inline const QString kGetCourse = QStringLiteral("getCourse");
 inline const QString kUpdateCourse = QStringLiteral("updateCourse");
 inline const QString kDeleteCourse = QStringLiteral("deleteCourse");    // stretch
+inline const QString kLinkPanoptoFolder = QStringLiteral("linkPanoptoFolder");  // R6
 
 inline const QString kStartSession = QStringLiteral("startSession");
 inline const QString kJoinSession = QStringLiteral("joinSession");
@@ -160,6 +164,8 @@ inline const QString kEducatorId = QStringLiteral("educatorId");
 inline const QString kStudentIds = QStringLiteral("studentIds");
 inline const QString kSessionIds = QStringLiteral("sessionIds");
 inline const QString kLiveSessionId = QStringLiteral("liveSessionId");
+inline const QString kPanoptoFolderId = QStringLiteral("panoptoFolderId");  // in a course, educator only
+inline const QString kFolderId = QStringLiteral("folderId");                // in "linkPanoptoFolder"
 
 inline const QString kSession = QStringLiteral("session");
 inline const QString kSessions = QStringLiteral("sessions");
@@ -217,6 +223,12 @@ QJsonObject toJson(const Participant& participant);
 QJsonObject toJson(const Course& course);
 QJsonObject toJson(const SessionSummary& summary);
 QJsonObject toJson(const Session& session);  // details + recording + pings + questions + answers
+// Details + recording only, with no lostCount/questionCount/lostPings/
+// questions keys at all. Used for replies and pushes whose session was not
+// loaded with its items (end, publish, rename, delete, recording changes),
+// so the app keeps the items it has instead of wiping them. The app tells
+// the two apart by whether "lostPings" is present.
+QJsonObject toDetailsJson(const Session& session);
 QJsonObject toJson(const LostPing& ping);
 QJsonObject toJson(const SessionQuestion& question);
 QJsonObject toJson(const Answer& answer);
@@ -265,6 +277,9 @@ QJsonObject makeMessage(const QString& type, QJsonObject fields = {});
 QJsonObject makeError(const QString& requestType, Error error);
 // The Error inside an "error" message.
 Error getError(const QJsonObject& errorMessage);
+
+// A whole number that fits in an int (not 1.5, not 4294967297).
+bool isInt(const QJsonValue& value);
 
 // True if every listed key is present in `message` with the JSON type
 // given: 's' string, 'i' whole number, 'b' bool, 'o' object.

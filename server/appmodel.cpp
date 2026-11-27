@@ -74,6 +74,9 @@ Result<User> AppModel::logIn(const std::string& name, const std::string& passwor
 
     Result<User> found = db->findUserByName(trimmedName);
     if (!found.isOk()) {
+        // Hash anyway, so an unknown name takes as long as a wrong password
+        // and the timing doesn't tell whether the name exists (U5).
+        PasswordHasher::hashPassword(password, PasswordHasher::generateSaltHex(), passwordIterations);
         return Error::WrongLogin;
     }
 
@@ -171,8 +174,20 @@ Error AppModel::deleteAccount(const std::string& password) {
         return Error::WrongPassword;
     }
 
-    if (db->countLiveSessionsHostedBy(currentUser->getId()) > 0) {
+    const int hosting = db->countLiveSessionsHostedBy(currentUser->getId());
+    if (hosting < 0) {
+        return Error::StorageError;
+    }
+    if (hosting > 0) {
         return Error::HostingLiveSession;
+    }
+    // U8: a course without its educator could never be run or deleted again.
+    const int teaching = db->countCoursesTaughtBy(currentUser->getId());
+    if (teaching < 0) {
+        return Error::StorageError;
+    }
+    if (teaching > 0) {
+        return Error::TeachesCourse;
     }
 
     if (!db->deleteUser(currentUser->getId()).isOk()) {
@@ -215,8 +230,9 @@ Result<Course> AppModel::joinCourse(const std::string& joinCode) {
         return Error::NoSuchCourseCode;
     }
 
-    if (found.value.getRole() == CourseRole::None) {
-        db->addStudent(found.value.getId(), currentUser->getId(), getNow());
+    if (found.value.getRole() == CourseRole::None &&
+        !db->addStudent(found.value.getId(), currentUser->getId(), getNow()).isOk()) {
+        return Error::StorageError;
     }
 
     Result<Course> courseRes = db->getCourse(found.value.getId(), currentUser->getId());
@@ -293,7 +309,7 @@ Result<Course> AppModel::updateCourse(int courseId, const std::string& name, boo
     if (!cRes.isOk() || cRes.value.getRole() == CourseRole::None) {
         return Error::NoSuchCourse;
     }
-    if (cRes.value.getRole() != CourseRole::Educator) {
+    if (!Permissions::canManageCourse(Viewer{currentUser->getId(), cRes.value.getRole()})) {
         return Error::NotCourseEducator;
     }
 
@@ -320,14 +336,46 @@ Error AppModel::deleteCourse(int courseId) {
     if (!cRes.isOk() || cRes.value.getRole() == CourseRole::None) {
         return Error::NoSuchCourse;
     }
-    if (cRes.value.getRole() != CourseRole::Educator) {
+    if (!Permissions::canManageCourse(Viewer{currentUser->getId(), cRes.value.getRole()})) {
         return Error::NotCourseEducator;
+    }
+    // Like S9 for one session: end the live one first, so nobody's room
+    // disappears mid-lecture.
+    if (cRes.value.getLiveSessionId() != 0) {
+        return Error::CourseHasLiveSession;
     }
 
     if (!db->deleteCourse(courseId).isOk()) {
         return Error::StorageError;
     }
     return Error::None;
+}
+
+Result<Course> AppModel::linkPanoptoFolder(int courseId, const std::string& folderId) {
+    if (!currentUser) {
+        return Error::NotLoggedIn;
+    }
+    if (!db) {
+        return Error::StorageError;
+    }
+
+    Result<Course> cRes = db->getCourse(courseId, currentUser->getId());
+    if (!cRes.isOk() || cRes.value.getRole() == CourseRole::None) {
+        return Error::NoSuchCourse;
+    }
+    if (!Permissions::canManageCourse(Viewer{currentUser->getId(), cRes.value.getRole()})) {
+        return Error::NotCourseEducator;
+    }
+
+    const std::string trimmed = Validation::trim(folderId);
+    if (const Error err = Validation::checkPanoptoFolderId(trimmed); err != Error::None) {
+        return err;
+    }
+
+    if (!db->setPanoptoFolder(courseId, trimmed).isOk()) {
+        return Error::StorageError;
+    }
+    return db->getCourse(courseId, currentUser->getId());
 }
 
 CourseRole AppModel::getRole(int courseId) const {
@@ -355,7 +403,7 @@ Result<OpenedSession> AppModel::startSession(int courseId, const std::string& na
     if (!cRes.isOk() || cRes.value.getRole() == CourseRole::None) {
         return Error::NoSuchCourse;
     }
-    if (cRes.value.getRole() != CourseRole::Educator) {
+    if (!Permissions::canStartSession(Viewer{currentUser->getId(), cRes.value.getRole()})) {
         return Error::NotCourseEducator;
     }
     if (cRes.value.getLiveSessionId() != 0) {
@@ -396,7 +444,9 @@ Result<OpenedSession> AppModel::joinSession(const std::string& joinCode) {
     CourseRole role = db->getRole(sRes.value.getCourseId(), currentUser->getId());
     bool newlyEnrolled = false;
     if (role == CourseRole::None) {
-        db->addStudent(sRes.value.getCourseId(), currentUser->getId(), getNow());
+        if (!db->addStudent(sRes.value.getCourseId(), currentUser->getId(), getNow()).isOk()) {
+            return Error::StorageError;
+        }
         role = CourseRole::Student;
         newlyEnrolled = true;
     }
@@ -423,8 +473,8 @@ Result<OpenedSession> AppModel::openSession(int sessionId) const {
         return rawRes.error;
     }
 
-    if (viewer.role == CourseRole::Student && rawRes.value.isInReview()) {
-        return Error::SessionNotPublished;
+    if (!Permissions::canOpenSession(viewer, rawRes.value)) {
+        return Error::SessionNotPublished;  // a student, while it is in review (S12)
     }
 
     Result<Session> full = db->loadSession(sessionId);
@@ -445,15 +495,16 @@ Result<Session> AppModel::endSession(int sessionId) {
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Educator) {
-        return Error::NotCourseEducator;
-    }
-    if (rawRes.value.isEnded()) {
-        return Error::SessionEnded;
+    if (!Permissions::canEndSession(viewer, rawRes.value)) {
+        return viewer.role != CourseRole::Educator ? Error::NotCourseEducator : Error::SessionEnded;
     }
 
-    if (!db->setSessionEnd(sessionId, getNow()).isOk()) {
+    const Result<bool> ended = db->setSessionEnd(sessionId, getNow());
+    if (!ended.isOk()) {
         return Error::StorageError;
+    }
+    if (!ended.value) {
+        return Error::SessionEnded;  // ended a moment ago on another device
     }
     return db->getSession(sessionId);
 }
@@ -465,18 +516,19 @@ Result<Session> AppModel::publishSession(int sessionId) {
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Educator) {
-        return Error::NotCourseEducator;
-    }
-    if (rawRes.value.isLive()) {
-        return Error::SessionNotEnded;
-    }
-    if (rawRes.value.isPublished()) {
-        return Error::SessionAlreadyPublished;
+    if (!Permissions::canPublishSession(viewer, rawRes.value)) {
+        if (viewer.role != CourseRole::Educator) {
+            return Error::NotCourseEducator;
+        }
+        return rawRes.value.isLive() ? Error::SessionNotEnded : Error::SessionAlreadyPublished;
     }
 
-    if (!db->setSessionPublished(sessionId, getNow()).isOk()) {
+    const Result<bool> published = db->setSessionPublished(sessionId, getNow());
+    if (!published.isOk()) {
         return Error::StorageError;
+    }
+    if (!published.value) {
+        return Error::SessionAlreadyPublished;  // published a moment ago elsewhere
     }
     return db->getSession(sessionId);
 }
@@ -488,7 +540,7 @@ Result<Session> AppModel::renameSession(int sessionId, const std::string& name) 
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Educator) {
+    if (!Permissions::canRenameSession(viewer)) {
         return Error::NotCourseEducator;
     }
 
@@ -510,8 +562,9 @@ Result<Session> AppModel::deleteSession(int sessionId) {
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Educator) {
-        return Error::NotCourseEducator;
+    // A live session still has people in it pressing Lost; end it first.
+    if (!Permissions::canDeleteSession(viewer, rawRes.value)) {
+        return viewer.role != CourseRole::Educator ? Error::NotCourseEducator : Error::SessionNotEnded;
     }
 
     Session before = rawRes.value;
@@ -530,16 +583,16 @@ Result<LostPingChange> AppModel::addLost(int sessionId) {
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Student) {
-        return Error::NotAStudent;
-    }
-    if (!rawRes.value.isLive()) {
-        return Error::SessionEnded;
+    if (!Permissions::canAddInput(viewer, rawRes.value)) {
+        return viewer.role != CourseRole::Student ? Error::NotAStudent : Error::SessionEnded;
     }
 
     // Cooldown check (I8)
     Result<std::optional<Clock::time_point>> lastTime = db->getLastLostTime(sessionId, currentUser->getId());
-    if (lastTime.isOk() && lastTime.value.has_value()) {
+    if (!lastTime.isOk()) {
+        return Error::StorageError;  // never skip the cooldown on a database error
+    }
+    if (lastTime.value.has_value()) {
         const auto diffSecs = std::chrono::duration_cast<std::chrono::seconds>(getNow() - *lastTime.value).count();
         if (diffSecs < 5) {
             return Error::LostTooSoon;
@@ -551,9 +604,21 @@ Result<LostPingChange> AppModel::addLost(int sessionId) {
         return pingRes.error;
     }
 
-    LostPing ping = pingRes.value;
-    ping.setAuthor(currentUser->getId(), currentUser->getName());
-    return LostPingChange{course, rawRes.value, ping};
+    return LostPingChange{course, rawRes.value, pingRes.value};
+}
+
+// Why a change to an item of an ENDED session is refused. The author and
+// the educator are told it's frozen (I6). A classmate is told it isn't
+// theirs only if they can see it (published, and for a question, questions
+// shared); otherwise it "doesn't exist" for them (C5, A2), so ids can't be
+// probed.
+static Error getEndedRefusal(const Viewer& viewer, const Course& course, const Session& session,
+                             bool isAuthor, bool isQuestion) {
+    if (isAuthor || viewer.role == CourseRole::Educator) {
+        return Error::SessionEnded;
+    }
+    const bool visible = session.isPublished() && (!isQuestion || course.areQuestionsShared());
+    return visible ? Error::NotYourInput : Error::NoSuchInput;
 }
 
 Result<LostPingChange> AppModel::deleteLost(int pingId) {
@@ -572,19 +637,19 @@ Result<LostPingChange> AppModel::deleteLost(int pingId) {
     if (!rawRes.isOk()) {
         return Error::NoSuchInput;
     }
-    if (!rawRes.value.isLive()) {
-        return Error::SessionEnded;
-    }
-    if (pingRes.value.getAuthorId() != currentUser->getId()) {
-        return Error::NotYourInput;
+    if (!Permissions::canDeleteLost(viewer, rawRes.value, pingRes.value)) {
+        if (!rawRes.value.isLive()) {
+            return getEndedRefusal(viewer, course, rawRes.value, pingRes.value.isBy(viewer.userId), false);
+        }
+        // A student can't see a classmate's live ping, so it "doesn't exist"
+        // for them (appmodel.h: NoSuchInput if not visible to the user).
+        return viewer.role == CourseRole::Educator ? Error::NotYourInput : Error::NoSuchInput;
     }
 
-    LostPing rawBefore = pingRes.value;
-    rawBefore.setAuthor(currentUser->getId(), currentUser->getName());
     if (!db->deleteLostPing(pingId).isOk()) {
         return Error::StorageError;
     }
-    return LostPingChange{course, rawRes.value, rawBefore};
+    return LostPingChange{course, rawRes.value, pingRes.value};
 }
 
 Result<QuestionChange> AppModel::addQuestion(int sessionId, const std::string& text) {
@@ -594,11 +659,8 @@ Result<QuestionChange> AppModel::addQuestion(int sessionId, const std::string& t
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Student) {
-        return Error::NotAStudent;
-    }
-    if (!rawRes.value.isLive()) {
-        return Error::SessionEnded;
+    if (!Permissions::canAddInput(viewer, rawRes.value)) {
+        return viewer.role != CourseRole::Student ? Error::NotAStudent : Error::SessionEnded;
     }
 
     const std::string trimmed = Validation::trim(text);
@@ -611,9 +673,7 @@ Result<QuestionChange> AppModel::addQuestion(int sessionId, const std::string& t
         return qRes.error;
     }
 
-    SessionQuestion q = qRes.value;
-    q.setAuthor(currentUser->getId(), currentUser->getName());
-    return QuestionChange{course, rawRes.value, q, 0, false};
+    return QuestionChange{course, rawRes.value, qRes.value, 0, false};
 }
 
 Result<QuestionChange> AppModel::editQuestion(int questionId, const std::string& text) {
@@ -632,11 +692,12 @@ Result<QuestionChange> AppModel::editQuestion(int questionId, const std::string&
     if (!rawRes.isOk()) {
         return Error::NoSuchInput;
     }
-    if (!rawRes.value.isLive()) {
-        return Error::SessionEnded;
-    }
-    if (qRes.value.getAuthorId() != currentUser->getId()) {
-        return Error::NotYourInput;
+    if (!Permissions::canEditQuestion(viewer, rawRes.value, qRes.value)) {
+        if (!rawRes.value.isLive()) {
+            return getEndedRefusal(viewer, course, rawRes.value, qRes.value.isBy(viewer.userId), true);
+        }
+        // Same as deleteLost: a classmate's live question is invisible.
+        return viewer.role == CourseRole::Educator ? Error::NotYourInput : Error::NoSuchInput;
     }
 
     const std::string trimmed = Validation::trim(text);
@@ -648,9 +709,11 @@ Result<QuestionChange> AppModel::editQuestion(int questionId, const std::string&
         return Error::StorageError;
     }
 
-    SessionQuestion updated = db->getQuestion(questionId).value;
-    updated.setAuthor(currentUser->getId(), currentUser->getName());
-    return QuestionChange{course, rawRes.value, updated, 0, false};
+    Result<SessionQuestion> updated = db->getQuestion(questionId);
+    if (!updated.isOk()) {
+        return Error::StorageError;
+    }
+    return QuestionChange{course, rawRes.value, updated.value, 0, false};
 }
 
 Result<QuestionChange> AppModel::deleteQuestion(int questionId) {
@@ -670,30 +733,23 @@ Result<QuestionChange> AppModel::deleteQuestion(int questionId) {
         return Error::NoSuchInput;
     }
 
-    bool byModerator = false;
-    if (rawRes.value.isLive()) {
-        if (qRes.value.getAuthorId() != currentUser->getId()) {
-            return Error::NotYourInput;
+    // Live: only the author (I5). Ended: only the educator, as moderation
+    // (I7). Each refusal says which rule stopped it.
+    const bool isAuthor = qRes.value.isBy(currentUser->getId());
+    if (!Permissions::canDeleteQuestion(viewer, rawRes.value, qRes.value)) {
+        if (rawRes.value.isLive()) {
+            // The educator moderates after the session; a classmate's live
+            // question is invisible to a student.
+            return viewer.role == CourseRole::Educator ? Error::SessionNotEnded : Error::NoSuchInput;
         }
-    } else {
-        if (viewer.role != CourseRole::Educator) {
-            return Error::NotCourseEducator;
-        }
-        byModerator = true;
+        return getEndedRefusal(viewer, course, rawRes.value, isAuthor, true);  // I6 freeze
     }
-
-    SessionQuestion before = qRes.value;
-    if (before.getAuthorId() > 0) {
-        const auto uRes = db->getUser(before.getAuthorId());
-        if (uRes.isOk()) {
-            before.setAuthor(before.getAuthorId(), uRes.value.getName());
-        }
-    }
+    const bool byModerator = !rawRes.value.isLive();
 
     if (!db->deleteQuestion(questionId).isOk()) {
         return Error::StorageError;
     }
-    return QuestionChange{course, rawRes.value, before, 0, byModerator};
+    return QuestionChange{course, rawRes.value, qRes.value, 0, byModerator};
 }
 
 // ================= Answers [F4] =================
@@ -714,11 +770,20 @@ Result<QuestionChange> AppModel::addAnswer(int questionId, const std::string& te
     if (!rawRes.isOk()) {
         return Error::NoSuchInput;
     }
-    if (rawRes.value.isLive()) {
-        return Error::SessionNotEnded;
+    if (!Permissions::canAddAnswer(viewer, rawRes.value)) {
+        return rawRes.value.isLive() ? Error::SessionNotEnded : Error::SessionNotPublished;
     }
-    if (viewer.role == CourseRole::Student && !rawRes.value.isPublished()) {
-        return Error::SessionNotPublished;
+    // Only a question this user can see can be answered (A2). Visibility
+    // decides, on a copy holding just this question, so the rule (questions
+    // shared or not) lives in one place.
+    {
+        Session only = rawRes.value;
+        only.setLostPings({});
+        only.setQuestions({qRes.value});
+        Visibility::redactSession(only, course, viewer);
+        if (only.getQuestions().empty()) {
+            return Error::NoSuchInput;
+        }
     }
 
     const std::string trimmed = Validation::trim(text);
@@ -732,8 +797,8 @@ Result<QuestionChange> AppModel::addAnswer(int questionId, const std::string& te
     }
 
     Result<SessionQuestion> updatedQ = db->getQuestion(questionId);
-    for (auto& a : const_cast<std::vector<Answer>&>(updatedQ.value.getAnswers())) {
-        a.setByEducator(course.isEducator(a.getAuthorId()));
+    if (!updatedQ.isOk()) {
+        return Error::StorageError;
     }
     return QuestionChange{course, rawRes.value, updatedQ.value, aRes.value.getId(), false};
 }
@@ -759,7 +824,7 @@ Result<QuestionChange> AppModel::editAnswer(int answerId, const std::string& tex
     if (!rawRes.isOk()) {
         return Error::NoSuchAnswer;
     }
-    if (aRes.value.getAuthorId() != currentUser->getId()) {
+    if (!Permissions::canEditAnswer(viewer, aRes.value)) {
         return Error::NotYourAnswer;
     }
 
@@ -773,8 +838,8 @@ Result<QuestionChange> AppModel::editAnswer(int answerId, const std::string& tex
     }
 
     Result<SessionQuestion> updatedQ = db->getQuestion(qRes.value.getId());
-    for (auto& a : const_cast<std::vector<Answer>&>(updatedQ.value.getAnswers())) {
-        a.setByEducator(course.isEducator(a.getAuthorId()));
+    if (!updatedQ.isOk()) {
+        return Error::StorageError;
     }
     return QuestionChange{course, rawRes.value, updatedQ.value, answerId, false};
 }
@@ -800,19 +865,22 @@ Result<QuestionChange> AppModel::deleteAnswer(int answerId) {
     if (!rawRes.isOk()) {
         return Error::NoSuchAnswer;
     }
-    if (aRes.value.getAuthorId() != currentUser->getId()) {
+    // The author can delete their own answer; the educator can remove any
+    // answer in their course (A7, moderation, like I7 for questions).
+    if (!Permissions::canDeleteAnswer(viewer, aRes.value)) {
         return Error::NotYourAnswer;
     }
+    const bool byModerator = !aRes.value.isBy(viewer.userId);
 
     if (!db->deleteAnswer(answerId).isOk()) {
         return Error::StorageError;
     }
 
     Result<SessionQuestion> updatedQ = db->getQuestion(qRes.value.getId());
-    for (auto& a : const_cast<std::vector<Answer>&>(updatedQ.value.getAnswers())) {
-        a.setByEducator(course.isEducator(a.getAuthorId()));
+    if (!updatedQ.isOk()) {
+        return Error::StorageError;
     }
-    return QuestionChange{course, rawRes.value, updatedQ.value, answerId, false};
+    return QuestionChange{course, rawRes.value, updatedQ.value, answerId, byModerator};
 }
 
 // ================= Recording [F2, F5] =================
@@ -825,11 +893,8 @@ Result<Session> AppModel::attachRecording(int sessionId, const std::string& url,
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Educator) {
-        return Error::NotCourseEducator;
-    }
-    if (rawRes.value.isLive()) {
-        return Error::SessionNotEnded;
+    if (!Permissions::canManageRecording(viewer, rawRes.value)) {
+        return viewer.role != CourseRole::Educator ? Error::NotCourseEducator : Error::SessionNotEnded;
     }
 
     const std::string trimmed = Validation::trim(url);
@@ -854,11 +919,8 @@ Result<Session> AppModel::removeRecording(int sessionId) {
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Educator) {
-        return Error::NotCourseEducator;
-    }
-    if (rawRes.value.isLive()) {
-        return Error::SessionNotEnded;
+    if (!Permissions::canManageRecording(viewer, rawRes.value)) {
+        return viewer.role != CourseRole::Educator ? Error::NotCourseEducator : Error::SessionNotEnded;
     }
 
     if (!db->clearRecording(sessionId).isOk()) {
@@ -874,11 +936,8 @@ Result<Session> AppModel::matchRecording(int sessionId, const std::vector<Record
     if (!rawRes.isOk()) {
         return rawRes.error;
     }
-    if (viewer.role != CourseRole::Educator) {
-        return Error::NotCourseEducator;
-    }
-    if (rawRes.value.isLive()) {
-        return Error::SessionNotEnded;
+    if (!Permissions::canManageRecording(viewer, rawRes.value)) {
+        return viewer.role != CourseRole::Educator ? Error::NotCourseEducator : Error::SessionNotEnded;
     }
 
     const int index = Recording::findOverlapping(candidates, rawRes.value.getStartTime(), rawRes.value.getEndTime());
@@ -886,9 +945,20 @@ Result<Session> AppModel::matchRecording(int sessionId, const std::vector<Record
         return Error::RecordingNotReady;
     }
 
+    // The candidates come from the app, so they get the same checks as a
+    // pasted link (R2): no javascript: or other non-http(s) URLs saved.
     const auto& candidate = candidates[index];
+    const std::string url = Validation::trim(candidate.viewerUrl);
+    if (const Error err = Validation::checkRecordingUrl(url); err != Error::None) {
+        return err;
+    }
     const long long offset = Recording::getOffsetBetween(candidate.start, rawRes.value.getStartTime());
-    Recording rec(candidate.viewerUrl, offset, RecordingSource::Panopto);
+    // More than a day apart means Panopto sent bad data: say so, and let
+    // the educator paste the link instead (R3).
+    if (const Error err = Validation::checkRecordingOffset(offset); err != Error::None) {
+        return err;
+    }
+    Recording rec(url, offset, RecordingSource::Panopto);
     if (!db->setRecording(sessionId, rec).isOk()) {
         return Error::StorageError;
     }

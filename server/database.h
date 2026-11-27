@@ -34,6 +34,7 @@
 #pragma once
 
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -74,13 +75,13 @@ public:
 
     // [F1] Opens the file, then:
     //   - new / empty file           -> creates the v2 tables
-    //   - file from the M2 app (v1)  -> copies it to "<path>.v1.bak" and
-    //                                   migrates it (migration_v1_to_v2.sql)
-    //   - v2 file                    -> nothing
+    //   - file from the M2 app (v1)  -> refuses and leaves it as it was
+    //                                   (team decision Nov 26: no migration;
+    //                                   delete or rename the old file)
+    //   - v2 file                    -> adds any missing newer columns
     //   - a version newer than kSchemaVersion -> refuses
-    // Returns false if the file can't be opened, the migration fails (the
-    // file is then left as it was) or the version is newer. Never crashes
-    // on an old file.
+    // Returns false if the file can't be opened, is an M2 file or the
+    // version is newer. Never crashes on an old file.
     Result<bool> open();
 
     // 0 before open(); kSchemaVersion after a successful open().
@@ -104,17 +105,23 @@ public:
     // [F4] False if there is no such user.
     Result<bool> setPassword(int userId, const std::string& hashHex, const std::string& saltHex,
                              int iterations);
-    // [F4] False if another user has that email (ignoring case) or there is
-    // no such user.
+    // [F4] Error::EmailTaken if another user has that email (ignoring
+    // case); false if there is no such user.
     Result<bool> setEmail(int userId, const std::string& email);
 
-    // [F4] U8: number of live sessions this user started (host_id).
+    // [F4] U8: number of live sessions this user started (host_id), -1 if
+    // the database refused.
     int countLiveSessionsHostedBy(int userId);
+
+    // [F4] U8: number of courses this user is the educator of, -1 if the
+    // database refused.
+    int countCoursesTaughtBy(int userId);
 
     // [F4] U8: deletes the user row, nothing else. The foreign keys do the
     // rest: their memberships go (CASCADE); their inputs and answers stay
     // with user_id NULL ("Deleted user"); sessions they hosted keep
-    // host_id NULL; courses they created stay with educator_id NULL.
+    // host_id NULL. AppModel refuses while they teach a course (U8), so no
+    // course is left without an educator.
     // False if there is no such user.
     Result<bool> deleteUser(int userId);
 
@@ -142,7 +149,11 @@ public:
     Result<bool> updateCourse(int courseId, const std::string& name, bool anonymous,
                              bool questionsShared);
     // [S] Deletes the course with its members, sessions, inputs and answers.
+    // False if there is no such course.
     Result<bool> deleteCourse(int courseId);
+    // [F5] R6. Saves the course's Panopto folder id; "" unlinks it. False
+    // if there is no such course.
+    Result<bool> setPanoptoFolder(int courseId, const std::string& folderId);
 
     // Adds a student (a CourseMembers row). False if they already are one.
     Result<bool> addStudent(int courseId, int userId, Clock::time_point joinedTime);
@@ -194,7 +205,8 @@ public:
     Result<LostPing> addLostPing(int sessionId, int userId, Clock::time_point time);
     Result<LostPing> getLostPing(int pingId);  // raw
     Result<std::vector<LostPing>> listLostPings(int sessionId);  // raw, by time then id
-    // [S] I8: time of the user's latest Lost in the session, if any.
+    // [S] I8: time of the user's latest Lost in the session, if any,
+    // counting presses deleted since the server started.
     Result<std::optional<Clock::time_point>> getLastLostTime(int sessionId, int userId);
     // [F3] False if no such ping.
     Result<bool> deleteLostPing(int pingId);
@@ -227,13 +239,19 @@ public:
     Result<bool> deleteAnswer(int answerId);
 
 private:
+    // I8: the latest Lost press per (session, user) during this run, so
+    // deleting a press doesn't reset the 5-second cooldown.
+    std::map<std::pair<int, int>, Clock::time_point> lastLostTimes;
+
     bool createTables();     // schema.sql
-    bool migrateV1ToV2();    // migration_v1_to_v2.sql
+    bool migrateV1ToV2();    // none yet: always refuses (see open())
     // What kind of file was opened: 0 = empty, 1 = made by the M2 app
     // (user_version 0 and a Users table with a user_password column),
     // otherwise PRAGMA user_version.
     int detectVersion();
     bool tableExists(const QString& name);
+    // Adds columns newer than a file's tables (Courses.panopto_folder_id).
+    bool addMissingColumns();
 
     // Converts between a time and the UTC text stored in the tables.
     static std::string convertTimeToString(Clock::time_point time);
@@ -241,6 +259,13 @@ private:
 
     // Query row -> model object helpers.
     Session parseSessionFromQuery(QSqlQuery& query);
+    // Rows selected with the kPingColumns / kQuestionColumns / kAnswerColumns
+    // lists in database.cpp: author name joined from Users (rule 7), and an
+    // answer's byEducator worked out from Courses.educator_id (rule 8).
+    LostPing parsePing(QSqlQuery& query);
+    SessionQuestion parseQuestion(QSqlQuery& query);  // with its answers
+    Answer parseAnswer(QSqlQuery& query);
+    std::vector<Answer> loadAnswers(int questionId);  // display order (A5)
 
     QString path;
     QString connectionName;  // unique per object

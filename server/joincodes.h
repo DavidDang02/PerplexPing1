@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdio>
+
 #include <string>
 #include <QRandomGenerator>
 
@@ -13,7 +15,7 @@ public:
         std::string code;
         code.reserve(6);
         for (int i = 0; i < 6; ++i) {
-            quint32 index = QRandomGenerator::global()->bounded(kCharCount);
+            quint32 index = QRandomGenerator::system()->bounded(kCharCount);
             code.push_back(kChars[index]);
         }
         return code;
@@ -21,7 +23,7 @@ public:
 
     static std::string generateSessionCode() {
         // 6 digits (000000 - 999999)
-        quint32 number = QRandomGenerator::global()->bounded(1000000);
+        quint32 number = QRandomGenerator::system()->bounded(1000000);
         char buf[7];
         std::snprintf(buf, sizeof(buf), "%06u", number);
         return std::string(buf);
