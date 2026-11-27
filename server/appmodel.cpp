@@ -181,6 +181,14 @@ Error AppModel::deleteAccount(const std::string& password) {
     if (hosting > 0) {
         return Error::HostingLiveSession;
     }
+    // U8: a course without its educator could never be run or deleted again.
+    const int teaching = db->countCoursesTaughtBy(currentUser->getId());
+    if (teaching < 0) {
+        return Error::StorageError;
+    }
+    if (teaching > 0) {
+        return Error::TeachesCourse;
+    }
 
     if (!db->deleteUser(currentUser->getId()).isOk()) {
         return Error::StorageError;

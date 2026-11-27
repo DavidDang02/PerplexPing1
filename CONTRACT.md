@@ -185,7 +185,7 @@ The controller is done: `client/appcontroller.h` has one **slot** per user actio
 2. Recordings: auto-match from the course's Panopto folder is the main flow; the educator links the folder once by pasting a lecture link; paste link + offset is the fallback. No timer: the educator presses Find recording.
 3. Users edit and delete their own answers; the educator can also delete any answer (moderation).
 4. A session code also enrolls you in the course.
-5. Deleting the account that created a course keeps the course; its items show "Deleted user".
+5. You can't delete your account while you teach a course (TeachesCourse): delete the courses first, so no course is left without an educator. A deleted student's items stay and show "Deleted user".
 6. Email must end in `@scu.edu` and is required.
 7. Timeline: click a bar or a question to play that moment.
 8. I'm Lost presses never show a name, even in a named course (only counts matter).

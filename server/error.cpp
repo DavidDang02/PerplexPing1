@@ -9,7 +9,7 @@ struct ErrorEntry {
     const char* code;
 };
 
-constexpr std::array<ErrorEntry, 56> kErrorTable = {{
+constexpr std::array<ErrorEntry, 57> kErrorTable = {{
     {Error::None, "None"},
     {Error::BadRequest, "BadRequest"},
     {Error::UnknownRequest, "UnknownRequest"},
@@ -65,11 +65,12 @@ constexpr std::array<ErrorEntry, 56> kErrorTable = {{
     {Error::PanoptoFolderNotLinked, "PanoptoFolderNotLinked"},
     {Error::PanoptoPortBusy, "PanoptoPortBusy"},
     {Error::PanoptoNoAccess, "PanoptoNoAccess"},
+    {Error::TeachesCourse, "TeachesCourse"},
     {Error::RecordingNotReady, "RecordingNotReady"},
 }};
 // Adding an Error without a row here fails to compile, instead of silently
 // sending "BadRequest" for it.
-static_assert(kErrorTable.size() == static_cast<size_t>(Error::PanoptoNoAccess) + 1,
+static_assert(kErrorTable.size() == static_cast<size_t>(Error::TeachesCourse) + 1,
               "every Error needs a row in kErrorTable");
 
 }  // namespace

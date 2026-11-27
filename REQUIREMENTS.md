@@ -50,7 +50,7 @@ Text is trimmed (spaces, tabs and line breaks at both ends) before it is checked
 | U5 | A failed login never says whether the name or the password was wrong | WrongLogin |
 | U6 | Email is required: ≤254 characters, one `@`, no spaces, ends in `@scu.edu`, unique ignoring case | EmptyEmail, EmailInvalid, EmailNotSchool, EmailTaken |
 | U7 | Changing the password needs the current one | WrongPassword |
-| U8 | Deleting the account needs the password and is refused while you are running a live session. Your presses, questions and answers stay, shown as "Deleted user". | WrongPassword, HostingLiveSession |
+| U8 | Deleting the account needs the password and is refused while you are running a live session or still teach a course (delete your courses first, so none is left without an educator). Your presses, questions and answers stay, shown as "Deleted user". | WrongPassword, HostingLiveSession, TeachesCourse |
 | U9 | Everything except sign-up and log-in needs a login | NotLoggedIn |
 
 ### Courses (C)

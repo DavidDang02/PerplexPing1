@@ -113,10 +113,15 @@ public:
     // the database refused.
     int countLiveSessionsHostedBy(int userId);
 
+    // [F4] U8: number of courses this user is the educator of, -1 if the
+    // database refused.
+    int countCoursesTaughtBy(int userId);
+
     // [F4] U8: deletes the user row, nothing else. The foreign keys do the
     // rest: their memberships go (CASCADE); their inputs and answers stay
     // with user_id NULL ("Deleted user"); sessions they hosted keep
-    // host_id NULL; courses they created stay with educator_id NULL.
+    // host_id NULL. AppModel refuses while they teach a course (U8), so no
+    // course is left without an educator.
     // False if there is no such user.
     Result<bool> deleteUser(int userId);
 

@@ -162,6 +162,7 @@ QString getErrorText(Error error) {
       return QString("Use your school email (ending in %1).").arg(Validation::kSchoolEmailDomain);
     case Error::EmailTaken:        return "That email already has an account.";
     case Error::HostingLiveSession: return "End your live session before deleting your account.";
+    case Error::TeachesCourse:     return "You still teach a course. Delete your courses first, so none is left without an instructor.";
     // ---- Courses ----
     case Error::EmptyCourseName:   return "Enter a course name.";
     case Error::CourseNameTooLong:

@@ -256,6 +256,16 @@ SELECT COUNT(*) FROM Sessions WHERE host_id = :id AND end_date IS NULL;)sql");
     return query.value(0).toInt();
 }
 
+int Database::countCoursesTaughtBy(int userId) {
+    QSqlQuery query(this->db);
+    query.prepare("SELECT COUNT(*) FROM Courses WHERE educator_id = :id;");
+    query.bindValue(":id", userId);
+    if (!query.exec() || !query.next()) {
+        return -1;  // unknown: the caller refuses rather than guessing 0
+    }
+    return query.value(0).toInt();
+}
+
 Result<bool> Database::deleteUser(int userId) {
     QSqlQuery check(this->db);
     check.prepare("SELECT 1 FROM Users WHERE user_id = :id;");

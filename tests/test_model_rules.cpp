@@ -243,3 +243,19 @@ TEST_CASE("R6: Find recording picks the recording that overlaps the most") {
     CHECK(Recording::findOverlapping({real, earlier}, ten, ten + seconds(3600)) == 0);
     CHECK(Recording::findOverlapping({earlier}, ten + seconds(7200), ten + seconds(9000)) == -1);
 }
+
+TEST_CASE("U8: an educator deletes their courses before their account") {
+    Class c;
+    CHECK(c.prof.deleteAccount("password123") == Error::HostingLiveSession);
+    c.endAndPublish();
+    CHECK(c.prof.deleteAccount("password123") == Error::TeachesCourse);
+    CHECK(c.prof.isLoggedIn());
+    CHECK(c.db.countCoursesTaughtBy(c.prof.getCurrentUser()->getId()) == 1);
+
+    REQUIRE(c.prof.deleteCourse(c.courseId) == Error::None);
+    CHECK(c.prof.deleteAccount("password123") == Error::None);
+    CHECK_FALSE(c.prof.isLoggedIn());
+
+    // A student who only takes courses can leave at any time.
+    CHECK(c.ana.deleteAccount("password123") == Error::None);
+}

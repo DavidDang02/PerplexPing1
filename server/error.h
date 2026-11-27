@@ -90,6 +90,7 @@ enum class Error {
     PanoptoFolderNotLinked,  // "Find recording" before the course's folder was linked
     PanoptoPortBusy,         // another program uses the sign-in port (8080)
     PanoptoNoAccess,         // Panopto says this account may not see that lecture/folder
+    TeachesCourse,           // U8: deleting the account while you are still a course's educator
     // Keep this last: the error table's size is checked against it.
 };
 
