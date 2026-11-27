@@ -80,6 +80,13 @@ public:
 
     void close() { socket.close(); }
 
+    // Sends raw text and waits for whatever comes back.
+    QJsonObject sendRaw(const QString& text) {
+        socket.sendTextMessage(text);
+        waitFor([this] { return !replies.isEmpty(); });
+        return replies.isEmpty() ? QJsonObject{} : replies.takeFirst();
+    }
+
 private:
     std::optional<QJsonObject> takePush(const QString& type) {
         for (int i = 0; i < pushes.size(); ++i) {
@@ -372,4 +379,41 @@ TEST_CASE("Server routes: deleting an account logs out its other connections") {
     // The phone is really logged out now.
     const QJsonObject after = phone.send(Request::kListCourses);
     CHECK(errorOf(after) == Error::NotLoggedIn);
+}
+
+TEST_CASE("Server routes: the course page gets its session list") {
+    Room room;
+    const QJsonObject reply = room.ana->send(Request::kGetCourse, fields({{Field::kCourseId, room.courseId}}));
+    REQUIRE(reply[Field::kOk].toBool());
+    const QJsonObject data = reply[Field::kData].toObject();
+    CHECK(data[Field::kRole].toString() == QStringLiteral("student"));
+    const QJsonArray sessions = data[Field::kSessions].toArray();
+    REQUIRE(sessions.size() == 1);
+    CHECK(sessions[0].toObject()[Field::kSessionId].toInt() == room.sessionId);
+    CHECK(sessions[0].toObject()[Field::kStatus].toString() == QStringLiteral("live"));
+}
+
+TEST_CASE("Live push: switching user on one app stops the old user's pushes") {
+    Room room;
+    // Ana's app logs in as a new user without logging out.
+    room.ana->login(QStringLiteral("dan"));
+    REQUIRE(room.prof->send(Request::kEndSession, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
+    CHECK(room.ana->getsNo(Reply::kSessionEnded));
+    CHECK(room.bob->waitPush(Reply::kSessionEnded).has_value());
+}
+
+TEST_CASE("Server routes: malformed requests get BadRequest, never a crash or silence") {
+    Room room;
+    CHECK(errorOf(room.ana->sendRaw(QStringLiteral("not json"))) == Error::BadRequest);
+    // A session id sent as text is a bad request, not "no such session".
+    const QJsonObject textId = room.ana->send(Request::kAddLost, fields({{Field::kSessionId, QStringLiteral("7")}}));
+    CHECK(errorOf(textId) == Error::BadRequest);
+    // A toggle that isn't a bool is refused, not read as false.
+    const QJsonObject badToggle = room.prof->send(Request::kCreateCourse,
+        fields({{Field::kName, QStringLiteral("X")}, {Field::kAnonymous, QStringLiteral("yes")}}));
+    CHECK(errorOf(badToggle) == Error::BadRequest);
+    // Missing text on a question.
+    CHECK(errorOf(room.ana->send(Request::kAddQuestion, fields({{Field::kSessionId, room.sessionId}}))) == Error::BadRequest);
+    // The connection still works afterwards.
+    CHECK(room.ana->send(Request::kAddLost, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
 }

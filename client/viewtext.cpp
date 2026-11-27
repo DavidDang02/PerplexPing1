@@ -79,9 +79,51 @@ QString getErrorText(Error error) {
       return QString("Questions can be at most %1 characters.").arg(Validation::kMaxQuestionLength);
     case Error::CourseHasLiveSession: return "A session is already running.";
     case Error::StorageError:      return "Couldn't save. Please try again.";
-    default:
-      return QString("Something went wrong (%1).").arg(QString::fromLatin1(getErrorCode(error)));
+    // ---- Protocol ----
+    case Error::BadRequest:        return "The app sent something the server didn't understand. Please update the app.";
+    case Error::UnknownRequest:    return "The server doesn't know this action. Please update the app or the server.";
+    // ---- Accounts ----
+    case Error::WrongPassword:     return "That password isn't right.";
+    case Error::EmptyEmail:        return "Enter your school email.";
+    case Error::EmailInvalid:      return "That doesn't look like an email address.";
+    case Error::EmailNotSchool:
+      return QString("Use your school email (ending in %1).").arg(Validation::kSchoolEmailDomain);
+    case Error::EmailTaken:        return "That email already has an account.";
+    case Error::HostingLiveSession: return "End your live session before deleting your account.";
+    // ---- Courses ----
+    case Error::EmptyCourseName:   return "Enter a course name.";
+    case Error::CourseNameTooLong:
+      return QString("Course names can be at most %1 characters.").arg(Validation::kMaxCourseNameLength);
+    case Error::NoSuchCourse:      return "That course doesn't exist, or you're not in it.";
+    case Error::NoSuchCourseCode:  return "No course has that code. Check it with your instructor.";
+    case Error::NotCourseEducator: return "Only the course's educator can do that.";
+    // ---- Sessions ----
+    case Error::EmptySessionName:  return "Enter a session name.";
+    case Error::SessionNameTooLong:
+      return QString("Session names can be at most %1 characters.").arg(Validation::kMaxSessionNameLength);
+    case Error::NoSuchSessionCode: return "No live session has that code. It may have ended.";
+    case Error::SessionNotEnded:   return "End the session first.";
+    case Error::SessionNotPublished: return "Your instructor hasn't published this session yet.";
+    case Error::SessionAlreadyPublished: return "This session is already published.";
+    // ---- Inputs ----
+    case Error::NotAStudent:       return "Only students can send I'm Lost or questions.";
+    case Error::LostTooSoon:       return "You just pressed I'm Lost. Wait a few seconds.";
+    case Error::NoSuchInput:       return "That item doesn't exist anymore.";
+    case Error::NotYourInput:      return "You can only change your own items.";
+    // ---- Answers ----
+    case Error::EmptyAnswer:       return "Type an answer before sending.";
+    case Error::AnswerTooLong:
+      return QString("Answers can be at most %1 characters.").arg(Validation::kMaxAnswerLength);
+    case Error::NoSuchAnswer:      return "That answer doesn't exist anymore.";
+    case Error::NotYourAnswer:     return "You can only change your own answers.";
+    // ---- Recording ----
+    case Error::RecordingUrlInvalid: return "Paste a full http(s) link to the recording.";
+    case Error::RecordingOffsetInvalid: return "The start time must be within 24 hours.";
+    case Error::RecordingNotReady: return "No recording found for this session yet. Panopto may still be processing it.";
   }
+  // Every Error has a sentence above (tests check this); this is only
+  // reached for a value outside the enum.
+  return QString("Something went wrong (%1).").arg(QString::fromLatin1(getErrorCode(error)));
 }
 
 }  // namespace ViewText

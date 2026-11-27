@@ -241,6 +241,13 @@ private:
 
     // Query row -> model object helpers.
     Session parseSessionFromQuery(QSqlQuery& query);
+    // Rows selected with the kPingColumns / kQuestionColumns / kAnswerColumns
+    // lists in database.cpp: author name joined from Users (rule 7), and an
+    // answer's byEducator worked out from Courses.educator_id (rule 8).
+    LostPing parsePing(QSqlQuery& query);
+    SessionQuestion parseQuestion(QSqlQuery& query);  // with its answers
+    Answer parseAnswer(QSqlQuery& query);
+    std::vector<Answer> loadAnswers(int questionId);  // display order (A5)
 
     QString path;
     QString connectionName;  // unique per object

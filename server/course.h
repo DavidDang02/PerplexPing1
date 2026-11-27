@@ -55,8 +55,8 @@ public:
     // True if userId is this course's educator (userId != 0).
     bool isEducator(int userId) const;
 
-    // Ids of the students (CourseMembers rows) and of the sessions, oldest
-    // first. Reloaded from the database each time; the tables are the
+    // Ids of the students (CourseMembers rows, in the order they joined) and of the
+    // sessions (newest first, like the course page). Reloaded from the database each time; the tables are the
     // source of truth, these lists are a copy.
     const std::vector<int>& getStudentIds() const;
     void setStudentIds(std::vector<int> ids);

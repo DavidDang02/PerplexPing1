@@ -1,6 +1,22 @@
 #include "session.h"
 
+#include "validation.h"
+
 #include <algorithm>
+
+namespace {
+// Time order, then id (session.h: "by time, then id"), so a list stays in
+// order however its items arrive (loaders, live pushes out of order).
+template <typename Item>
+void sortByTimeThenId(std::vector<Item>& items) {
+    std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
+        if (a.getTime() != b.getTime()) {
+            return a.getTime() < b.getTime();
+        }
+        return a.getId() < b.getId();
+    });
+}
+}  // namespace
 
 Session::Session() : startTime(Clock::now()), status(SessionStatus::Live) {}
 
@@ -32,7 +48,8 @@ Session::Clock::time_point Session::getStartTime() const { return this->startTim
 
 Session::Clock::time_point Session::getEndTime() const { return this->endTime; }
 
-bool Session::isEnded() const { return this->endTime != Clock::time_point{}; }
+// The status says where the session is (S11), even with a zero end time.
+bool Session::isEnded() const { return this->status != SessionStatus::Live; }
 bool Session::isLive() const { return !this->isEnded(); }
 
 SessionStatus Session::getStatus() const { return this->status; }
@@ -90,6 +107,7 @@ bool Session::addLostPing(const LostPing& ping) {
         return false;
     }
     this->lostPings.push_back(ping);
+    sortByTimeThenId(this->lostPings);
     return true;
 }
 
@@ -98,6 +116,7 @@ bool Session::addQuestion(const SessionQuestion& question) {
         return false;
     }
     this->questions.push_back(question);
+    sortByTimeThenId(this->questions);
     return true;
 }
 
@@ -106,15 +125,23 @@ bool Session::lostButtonClicked() {
 }
 
 bool Session::askQuestion(const std::string& text) {
-    return this->addQuestion(SessionQuestion(Clock::now(), text));
+    // I3: same check as AppModel (trimmed, 1-500 characters).
+    const std::string trimmed = Validation::trim(text);
+    if (Validation::checkQuestion(trimmed) != Error::None) {
+        return false;
+    }
+    return this->addQuestion(SessionQuestion(Clock::now(), trimmed));
 }
+
 
 void Session::setLostPings(std::vector<LostPing> pings) {
     this->lostPings = std::move(pings);
+    sortByTimeThenId(this->lostPings);
 }
 
 void Session::setQuestions(std::vector<SessionQuestion> questions) {
     this->questions = std::move(questions);
+    sortByTimeThenId(this->questions);
 }
 
 void Session::upsertLostPing(const LostPing& ping) {
@@ -125,6 +152,7 @@ void Session::upsertLostPing(const LostPing& ping) {
         }
     }
     this->lostPings.push_back(ping);
+    sortByTimeThenId(this->lostPings);
 }
 
 bool Session::removeLostPing(int pingId) {
@@ -145,6 +173,7 @@ void Session::upsertQuestion(const SessionQuestion& question) {
         }
     }
     this->questions.push_back(question);
+    sortByTimeThenId(this->questions);
 }
 
 bool Session::removeQuestion(int questionId) {

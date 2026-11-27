@@ -53,9 +53,14 @@ Result<bool> Database::open() {
         }
         this->schemaVersion = 2;
     } else if (version == 1) {
-        // M2 app file: migrate
+        // M2 app file: migrate. No migration exists yet, so this refuses
+        // the file without touching it.
         if (!this->migrateV1ToV2()) {
-            std::cerr << "Database::open: migration failed" << std::endl;
+            std::cerr << "Database::open: " << this->path.toStdString()
+                      << " is an old M2 PerplexPing database. Delete or rename it "
+                         "and start the server again." << std::endl;
+            this->db.close();
+            QSqlDatabase::removeDatabase(this->connectionName);
             return Result<bool>(Error::StorageError);
         }
     } else if (version > 2) {
@@ -638,6 +643,89 @@ FROM Sessions WHERE join_code = :code AND end_date IS NULL;)sql");
     return Result<Session>(parseSessionFromQuery(query));
 }
 
+// ---- Item rows (pings, questions, answers) ----
+// Every item query selects these columns so one parser reads them all.
+// The LEFT JOIN keeps items whose author was deleted (user_id NULL, U8).
+namespace {
+const char* const kPingColumns = R"sql(
+SELECT p.ping_id, p.session_id, p.user_id, p.ping_time, u.user_name
+FROM SessionLostPings p LEFT JOIN Users u ON u.user_id = p.user_id )sql";
+
+const char* const kQuestionColumns = R"sql(
+SELECT q.question_id, q.session_id, q.user_id, q.question_time, q.question_text,
+       q.edited_time, u.user_name
+FROM SessionQuestions q LEFT JOIN Users u ON u.user_id = q.user_id )sql";
+
+// by_edu: the answer's author is the course's educator (A5). False when
+// either id is NULL (deleted account), so a deleted student is never "educator".
+const char* const kAnswerColumns = R"sql(
+SELECT a.answer_id, a.question_id, a.user_id, a.answer_text, a.answer_time,
+       a.edited_time, u.user_name,
+       (a.user_id IS NOT NULL AND a.user_id = c.educator_id) AS by_edu
+FROM Answers a
+LEFT JOIN Users u ON u.user_id = a.user_id
+JOIN SessionQuestions q ON q.question_id = a.question_id
+JOIN Sessions s ON s.session_id = q.session_id
+JOIN Courses c ON c.course_id = s.course_id )sql";
+
+// author: column of user_id, name: column of user_name.
+template <typename Item>
+void readAuthorColumns(QSqlQuery& query, int idColumn, int nameColumn, Item& item) {
+    if (query.value(idColumn).isNull()) {
+        item.setAuthorDeleted();
+    } else {
+        item.setAuthor(query.value(idColumn).toInt(),
+                       query.value(nameColumn).toString().toStdString());
+    }
+}
+}  // namespace
+
+LostPing Database::parsePing(QSqlQuery& query) {
+    LostPing ping(convertStringToTime(query.value(3).toString().toStdString()));
+    ping.setId(query.value(0).toInt());
+    ping.setSessionId(query.value(1).toInt());
+    readAuthorColumns(query, 2, 4, ping);
+    return ping;
+}
+
+Answer Database::parseAnswer(QSqlQuery& query) {
+    Answer a(query.value(0).toInt(), query.value(1).toInt(),
+             convertStringToTime(query.value(4).toString().toStdString()),
+             query.value(3).toString().toStdString());
+    if (!query.value(5).isNull()) {
+        a.setEditedTime(convertStringToTime(query.value(5).toString().toStdString()));
+    }
+    readAuthorColumns(query, 2, 6, a);
+    a.setByEducator(query.value(7).toInt() == 1);
+    return a;
+}
+
+std::vector<Answer> Database::loadAnswers(int questionId) {
+    std::vector<Answer> answers;
+    QSqlQuery query(this->db);
+    query.prepare(QString(kAnswerColumns) + "WHERE a.question_id = :qid;");
+    query.bindValue(":qid", questionId);
+    if (query.exec()) {
+        while (query.next()) {
+            answers.push_back(parseAnswer(query));
+        }
+    }
+    return answers;
+}
+
+SessionQuestion Database::parseQuestion(QSqlQuery& query) {
+    SessionQuestion q(convertStringToTime(query.value(3).toString().toStdString()),
+                      query.value(4).toString().toStdString());
+    q.setId(query.value(0).toInt());
+    q.setSessionId(query.value(1).toInt());
+    if (!query.value(5).isNull()) {
+        q.setEditedTime(convertStringToTime(query.value(5).toString().toStdString()));
+    }
+    readAuthorColumns(query, 2, 6, q);
+    q.setAnswers(loadAnswers(q.getId()));  // setAnswers sorts: educator first (A5)
+    return q;
+}
+
 Result<Session> Database::loadSession(int sessionId) {
     Result<Session> sessionRes = getSession(sessionId);
     if (!sessionRes.isOk()) {
@@ -645,75 +733,13 @@ Result<Session> Database::loadSession(int sessionId) {
     }
     Session session = sessionRes.value;
 
-    std::vector<LostPing> pings;
-    QSqlQuery pingQ(this->db);
-    pingQ.prepare(R"sql(
-SELECT ping_id, session_id, user_id, ping_time
-FROM SessionLostPings WHERE session_id = :sid ORDER BY ping_time, ping_id;)sql");
-    pingQ.bindValue(":sid", sessionId);
-    if (pingQ.exec()) {
-        while (pingQ.next()) {
-            LostPing ping(convertStringToTime(pingQ.value(3).toString().toStdString()));
-            ping.setId(pingQ.value(0).toInt());
-            ping.setSessionId(pingQ.value(1).toInt());
-            if (!pingQ.value(2).isNull()) {
-                ping.setAuthor(pingQ.value(2).toInt(), "");
-            } else {
-                ping.setAuthorDeleted();
-            }
-            pings.push_back(std::move(ping));
-        }
+    Result<std::vector<LostPing>> pings = listLostPings(sessionId);
+    Result<std::vector<SessionQuestion>> questions = listQuestions(sessionId);
+    if (!pings.isOk() || !questions.isOk()) {
+        return Result<Session>(Error::StorageError);
     }
-    session.setLostPings(std::move(pings));
-
-    std::vector<SessionQuestion> questions;
-    QSqlQuery qQ(this->db);
-    qQ.prepare(R"sql(
-SELECT question_id, session_id, user_id, question_time, question_text, edited_time
-FROM SessionQuestions WHERE session_id = :sid ORDER BY question_time, question_id;)sql");
-    qQ.bindValue(":sid", sessionId);
-    if (qQ.exec()) {
-        while (qQ.next()) {
-            SessionQuestion q(convertStringToTime(qQ.value(3).toString().toStdString()),
-                              qQ.value(4).toString().toStdString());
-            q.setId(qQ.value(0).toInt());
-            q.setSessionId(qQ.value(1).toInt());
-            if (!qQ.value(2).isNull()) {
-                q.setAuthor(qQ.value(2).toInt(), "");
-            } else {
-                q.setAuthorDeleted();
-            }
-            if (!qQ.value(5).isNull()) {
-                q.setEditedTime(convertStringToTime(qQ.value(5).toString().toStdString()));
-            }
-
-            QSqlQuery aQ(this->db);
-            aQ.prepare(R"sql(
-SELECT answer_id, question_id, user_id, answer_text, answer_time, edited_time
-FROM Answers WHERE question_id = :qid ORDER BY answer_time, answer_id;)sql");
-            aQ.bindValue(":qid", q.getId());
-            if (aQ.exec()) {
-                while (aQ.next()) {
-                    Answer a(aQ.value(0).toInt(),
-                             q.getId(),
-                             convertStringToTime(aQ.value(4).toString().toStdString()),
-                             aQ.value(3).toString().toStdString());
-                    if (!aQ.value(2).isNull()) {
-                        a.setAuthor(aQ.value(2).toInt(), "");
-                    } else {
-                        a.setAuthorDeleted();
-                    }
-                    if (!aQ.value(5).isNull()) {
-                        a.setEditedTime(convertStringToTime(aQ.value(5).toString().toStdString()));
-                    }
-                    q.upsertAnswer(std::move(a));
-                }
-            }
-            questions.push_back(std::move(q));
-        }
-    }
-    session.setQuestions(std::move(questions));
-
+    session.setLostPings(std::move(pings.value));
+    session.setQuestions(std::move(questions.value));
     return Result<Session>(std::move(session));
 }
 
@@ -769,10 +795,9 @@ Result<bool> Database::setSessionEnd(int sessionId, Clock::time_point endTime) {
     if (!query.exec()) {
         return Result<bool>(Error::StorageError);
     }
-    if (query.numRowsAffected() == 0) {
-        return Result<bool>(Error::NoSuchSession);
-    }
-    return Result<bool>(true);
+    // False (not an error) if nothing changed: no such session, or it was
+    // already past this step, e.g. End pressed on two devices (header).
+    return Result<bool>(query.numRowsAffected() > 0);
 }
 
 Result<bool> Database::setSessionPublished(int sessionId, Clock::time_point publishedTime) {
@@ -783,10 +808,9 @@ Result<bool> Database::setSessionPublished(int sessionId, Clock::time_point publ
     if (!query.exec()) {
         return Result<bool>(Error::StorageError);
     }
-    if (query.numRowsAffected() == 0) {
-        return Result<bool>(Error::NoSuchSession);
-    }
-    return Result<bool>(true);
+    // False (not an error) if nothing changed: no such session, or it was
+    // already past this step, e.g. End pressed on two devices (header).
+    return Result<bool>(query.numRowsAffected() > 0);
 }
 
 Result<bool> Database::renameSession(int sessionId, const std::string& name) {
@@ -861,49 +885,31 @@ Result<LostPing> Database::addLostPing(int sessionId, int userId, Clock::time_po
                   << insert.lastError().text().toStdString() << std::endl;
         return Result<LostPing>(Error::StorageError);
     }
-    LostPing ping(time);
-    ping.setId(insert.lastInsertId().toInt());
-    ping.setSessionId(sessionId);
-    ping.setAuthor(userId, "");
-    return Result<LostPing>(std::move(ping));
+    // Read it back so the author's name (and byEducator) come from the
+    // same parser as every other load.
+    return getLostPing(insert.lastInsertId().toInt());
 }
 
 Result<LostPing> Database::getLostPing(int pingId) {
     QSqlQuery query(this->db);
-    query.prepare("SELECT ping_id, session_id, user_id, ping_time FROM SessionLostPings WHERE ping_id = :id;");
+    query.prepare(QString(kPingColumns) + "WHERE p.ping_id = :id;");
     query.bindValue(":id", pingId);
     if (!query.exec() || !query.next()) {
         return Result<LostPing>(Error::NoSuchSession);
     }
-    LostPing ping(convertStringToTime(query.value(3).toString().toStdString()));
-    ping.setId(query.value(0).toInt());
-    ping.setSessionId(query.value(1).toInt());
-    if (!query.value(2).isNull()) {
-        ping.setAuthor(query.value(2).toInt(), "");
-    } else {
-        ping.setAuthorDeleted();
-    }
-    return Result<LostPing>(std::move(ping));
+    return Result<LostPing>(parsePing(query));
 }
 
 Result<std::vector<LostPing>> Database::listLostPings(int sessionId) {
     std::vector<LostPing> pings;
     QSqlQuery query(this->db);
-    query.prepare("SELECT ping_id, session_id, user_id, ping_time FROM SessionLostPings WHERE session_id = :sid ORDER BY ping_time, ping_id;");
+    query.prepare(QString(kPingColumns) + "WHERE p.session_id = :sid ORDER BY p.ping_time, p.ping_id;");
     query.bindValue(":sid", sessionId);
     if (!query.exec()) {
         return Result<std::vector<LostPing>>(Error::StorageError);
     }
     while (query.next()) {
-        LostPing ping(convertStringToTime(query.value(3).toString().toStdString()));
-        ping.setId(query.value(0).toInt());
-        ping.setSessionId(query.value(1).toInt());
-        if (!query.value(2).isNull()) {
-            ping.setAuthor(query.value(2).toInt(), "");
-        } else {
-            ping.setAuthorDeleted();
-        }
-        pings.push_back(std::move(ping));
+        pings.push_back(parsePing(query));
     }
     return Result<std::vector<LostPing>>(std::move(pings));
 }
@@ -959,99 +965,31 @@ Result<SessionQuestion> Database::addQuestion(int sessionId, int userId,
                   << insert.lastError().text().toStdString() << std::endl;
         return Result<SessionQuestion>(Error::StorageError);
     }
-    SessionQuestion q(time, text);
-    q.setId(insert.lastInsertId().toInt());
-    q.setSessionId(sessionId);
-    q.setAuthor(userId, "");
-    return Result<SessionQuestion>(std::move(q));
+    // Read it back so the author's name (and byEducator) come from the
+    // same parser as every other load.
+    return getQuestion(insert.lastInsertId().toInt());
 }
 
 Result<SessionQuestion> Database::getQuestion(int questionId) {
     QSqlQuery query(this->db);
-    query.prepare("SELECT question_id, session_id, user_id, question_time, question_text, edited_time FROM SessionQuestions WHERE question_id = :id;");
+    query.prepare(QString(kQuestionColumns) + "WHERE q.question_id = :id;");
     query.bindValue(":id", questionId);
     if (!query.exec() || !query.next()) {
         return Result<SessionQuestion>(Error::NoSuchSession);
     }
-    SessionQuestion q(convertStringToTime(query.value(3).toString().toStdString()),
-                      query.value(4).toString().toStdString());
-    q.setId(query.value(0).toInt());
-    q.setSessionId(query.value(1).toInt());
-    if (!query.value(2).isNull()) {
-        q.setAuthor(query.value(2).toInt(), "");
-    } else {
-        q.setAuthorDeleted();
-    }
-    if (!query.value(5).isNull()) {
-        q.setEditedTime(convertStringToTime(query.value(5).toString().toStdString()));
-    }
-
-    QSqlQuery aQ(this->db);
-    aQ.prepare("SELECT answer_id, question_id, user_id, answer_text, answer_time, edited_time FROM Answers WHERE question_id = :qid ORDER BY answer_time, answer_id;");
-    aQ.bindValue(":qid", q.getId());
-    if (aQ.exec()) {
-        while (aQ.next()) {
-            Answer a(aQ.value(0).toInt(),
-                     q.getId(),
-                     convertStringToTime(aQ.value(4).toString().toStdString()),
-                     aQ.value(3).toString().toStdString());
-            if (!aQ.value(2).isNull()) {
-                a.setAuthor(aQ.value(2).toInt(), "");
-            } else {
-                a.setAuthorDeleted();
-            }
-            if (!aQ.value(5).isNull()) {
-                a.setEditedTime(convertStringToTime(aQ.value(5).toString().toStdString()));
-            }
-            q.upsertAnswer(std::move(a));
-        }
-    }
-    return Result<SessionQuestion>(std::move(q));
+    return Result<SessionQuestion>(parseQuestion(query));
 }
 
 Result<std::vector<SessionQuestion>> Database::listQuestions(int sessionId) {
     std::vector<SessionQuestion> questions;
     QSqlQuery query(this->db);
-    query.prepare("SELECT question_id, session_id, user_id, question_time, question_text, edited_time FROM SessionQuestions WHERE session_id = :sid ORDER BY question_time, question_id;");
+    query.prepare(QString(kQuestionColumns) + "WHERE q.session_id = :sid ORDER BY q.question_time, q.question_id;");
     query.bindValue(":sid", sessionId);
     if (!query.exec()) {
         return Result<std::vector<SessionQuestion>>(Error::StorageError);
     }
     while (query.next()) {
-        SessionQuestion q(convertStringToTime(query.value(3).toString().toStdString()),
-                          query.value(4).toString().toStdString());
-        q.setId(query.value(0).toInt());
-        q.setSessionId(query.value(1).toInt());
-        if (!query.value(2).isNull()) {
-            q.setAuthor(query.value(2).toInt(), "");
-        } else {
-            q.setAuthorDeleted();
-        }
-        if (!query.value(5).isNull()) {
-            q.setEditedTime(convertStringToTime(query.value(5).toString().toStdString()));
-        }
-
-        QSqlQuery aQ(this->db);
-        aQ.prepare("SELECT answer_id, question_id, user_id, answer_text, answer_time, edited_time FROM Answers WHERE question_id = :qid ORDER BY answer_time, answer_id;");
-        aQ.bindValue(":qid", q.getId());
-        if (aQ.exec()) {
-            while (aQ.next()) {
-                Answer a(aQ.value(0).toInt(),
-                         q.getId(),
-                         convertStringToTime(aQ.value(4).toString().toStdString()),
-                         aQ.value(3).toString().toStdString());
-                if (!aQ.value(2).isNull()) {
-                    a.setAuthor(aQ.value(2).toInt(), "");
-                } else {
-                    a.setAuthorDeleted();
-                }
-                if (!aQ.value(5).isNull()) {
-                    a.setEditedTime(convertStringToTime(aQ.value(5).toString().toStdString()));
-                }
-                q.upsertAnswer(std::move(a));
-            }
-        }
-        questions.push_back(std::move(q));
+        questions.push_back(parseQuestion(query));
     }
     return Result<std::vector<SessionQuestion>>(std::move(questions));
 }
@@ -1107,28 +1045,19 @@ Result<Answer> Database::addAnswer(int questionId, int userId, const std::string
                   << insert.lastError().text().toStdString() << std::endl;
         return Result<Answer>(Error::StorageError);
     }
-    Answer a(insert.lastInsertId().toInt(), questionId, time, text);
-    a.setAuthor(userId, "");
-    return Result<Answer>(std::move(a));
+    // Read it back so the author's name (and byEducator) come from the
+    // same parser as every other load.
+    return getAnswer(insert.lastInsertId().toInt());
 }
 
 Result<Answer> Database::getAnswer(int answerId) {
     QSqlQuery query(this->db);
-    query.prepare("SELECT answer_id, question_id, user_id, answer_text, answer_time, edited_time FROM Answers WHERE answer_id = :id;");
+    query.prepare(QString(kAnswerColumns) + "WHERE a.answer_id = :id;");
     query.bindValue(":id", answerId);
     if (!query.exec() || !query.next()) {
         return Result<Answer>(Error::NoSuchSession);
     }
-    Answer a(query.value(0).toInt(),
-             query.value(1).toInt(),
-             convertStringToTime(query.value(4).toString().toStdString()),
-             query.value(3).toString().toStdString());
-    if (!query.value(2).isNull()) {
-        a.setAuthor(query.value(2).toInt(), "");
-    } else {
-        a.setAuthorDeleted();
-    }
-    return Result<Answer>(std::move(a));
+    return Result<Answer>(parseAnswer(query));
 }
 
 Result<bool> Database::updateAnswerText(int answerId, const std::string& text, Clock::time_point editedTime) {
@@ -1273,7 +1202,11 @@ CREATE TABLE IF NOT EXISTS Sessions (
     published_at     TEXT,
     recording_url    TEXT,
     recording_offset INTEGER,
-    recording_source TEXT CHECK (recording_source IN ('manual', 'panopto'))
+    recording_source TEXT CHECK (recording_source IN ('manual', 'panopto')),
+    CHECK ((status = 'live') = (end_date IS NULL)),
+    CHECK ((status = 'published') = (published_at IS NOT NULL)),
+    CHECK ((recording_url IS NULL) = (recording_offset IS NULL)),
+    CHECK ((recording_url IS NULL) = (recording_source IS NULL))
 );)sql");
     if (!status) {
         std::cerr << "Database::createTables: Sessions table failed: "
@@ -1335,18 +1268,39 @@ CREATE TABLE IF NOT EXISTS Answers (
 }
 
 bool Database::migrateV1ToV2() {
-    return this->createTables();
+    // Not written: CREATE TABLE IF NOT EXISTS would keep the M2 tables and
+    // stamp the file v2, after which every sign-up fails. Until a real
+    // migration exists, an M2 file is refused (see open()).
+    return false;
 }
 
 int Database::detectVersion() {
     QSqlQuery query(this->db);
-    if (!query.exec("PRAGMA user_version;")) {
-        return 0;
+    int version = 0;
+    if (query.exec("PRAGMA user_version;") && query.next()) {
+        version = query.value(0).toInt();
     }
-    if (query.next()) {
-        return query.value(0).toInt();
+    if (version != 0 || !tableExists("Users")) {
+        return version;
+    }
+    // user_version 0 but tables exist: the M2 app made it if Users has the
+    // old plain-text user_password column (header).
+    QSqlQuery columns(this->db);
+    if (columns.exec("PRAGMA table_info(Users);")) {
+        while (columns.next()) {
+            if (columns.value(1).toString() == "user_password") {
+                return 1;
+            }
+        }
     }
     return 0;
+}
+
+bool Database::tableExists(const QString& name) {
+    QSqlQuery query(this->db);
+    query.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name;");
+    query.bindValue(":name", name);
+    return query.exec() && query.next();
 }
 
 std::string Database::convertTimeToString(Clock::time_point time) {

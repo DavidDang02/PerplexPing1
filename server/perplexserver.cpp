@@ -11,9 +11,12 @@
 
 #include <QDateTime>
 #include <QDebug>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QList>
+#include <QPair>
 
 #include "database.h"
 #include "joincodes.h"
@@ -148,6 +151,55 @@ QJsonObject makeQuestionMessage(const QString& type, const QuestionChange& chang
     return message;
 }
 
+// The fields each request must carry, with their JSON type ('s' string,
+// 'i' whole number, 'b' bool). One table, checked before any handler runs,
+// so a missing or wrongly typed field is always BadRequest (N3) instead of
+// a misleading model error ("7" as a session id is not session 0).
+// Optional fields (createCourse's toggles, attachRecording's source) are
+// only checked when present.
+bool hasRequiredFields(const QString& type, const QJsonObject& request) {
+    using namespace Protocol;
+    static const QHash<QString, QList<QPair<QString, char>>> required = {
+        {Request::kCreateCourse, {{Field::kName, 's'}}},
+        {Request::kJoinCourse, {{Field::kJoinCode, 's'}}},
+        {Request::kGetCourse, {{Field::kCourseId, 'i'}}},
+        {Request::kStartSession, {{Field::kCourseId, 'i'}, {Field::kName, 's'}}},
+        {Request::kJoinSession, {{Field::kJoinCode, 's'}}},
+        {Request::kOpenSession, {{Field::kSessionId, 'i'}}},
+        {Request::kEndSession, {{Field::kSessionId, 'i'}}},
+        {Request::kAddLost, {{Field::kSessionId, 'i'}}},
+        {Request::kDeleteLost, {{Field::kPingId, 'i'}}},
+        {Request::kAddQuestion, {{Field::kSessionId, 'i'}, {Field::kText, 's'}}},
+        {Request::kEditQuestion, {{Field::kQuestionId, 'i'}, {Field::kText, 's'}}},
+        {Request::kDeleteQuestion, {{Field::kQuestionId, 'i'}}},
+        {Request::kAddAnswer, {{Field::kQuestionId, 'i'}, {Field::kText, 's'}}},
+        {Request::kEditAnswer, {{Field::kAnswerId, 'i'}, {Field::kText, 's'}}},
+        {Request::kDeleteAnswer, {{Field::kAnswerId, 'i'}}},
+    };
+    static const QList<QPair<QString, char>> optional = {
+        {Field::kAnonymous, 'b'}, {Field::kQuestionsShared, 'b'}, {Field::kSource, 's'},
+    };
+    auto isType = [](const QJsonValue& value, char kind) {
+        switch (kind) {
+        case 's': return value.isString();
+        case 'i': return value.isDouble() && value.toDouble() == double(value.toInteger());
+        case 'b': return value.isBool();
+        default: return false;
+        }
+    };
+    for (const auto& [key, kind] : required.value(type)) {
+        if (!request.contains(key) || !isType(request[key], kind)) {
+            return false;
+        }
+    }
+    for (const auto& [key, kind] : optional) {
+        if (request.contains(key) && !isType(request[key], kind)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 PerplexServer::PerplexServer(int port, Database* db, QObject* parent,
@@ -209,12 +261,13 @@ void PerplexServer::registerHandlers() {
 
         Result<User> res = state.model->registerUser(name.toStdString(), password.toStdString(), email.toStdString());
         if (!res.isOk()) {
-            reply[Protocol::Field::kOk] = false;
-            reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
-            reply[Protocol::Field::kCode] = QString::fromStdString(getErrorCode(res.error));
+            setFailure(reply, res.error);
             return;
         }
 
+        // Logging in on a logged-in app switches user: the old user's open
+        // session (and its pushes and participant line) must not carry over.
+        setOpenSession(state, 0, 0);
         state.authenticated = true;
         state.userId = res.value.getId();
         reply[Protocol::Field::kOk] = true;
@@ -228,12 +281,13 @@ void PerplexServer::registerHandlers() {
 
         Result<User> res = state.model->logIn(name.toStdString(), password.toStdString());
         if (!res.isOk()) {
-            reply[Protocol::Field::kOk] = false;
-            reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
-            reply[Protocol::Field::kCode] = QString::fromStdString(getErrorCode(res.error));
+            setFailure(reply, res.error);
             return;
         }
 
+        // Logging in on a logged-in app switches user: the old user's open
+        // session (and its pushes and participant line) must not carry over.
+        setOpenSession(state, 0, 0);
         state.authenticated = true;
         state.userId = res.value.getId();
         reply[Protocol::Field::kOk] = true;
@@ -260,8 +314,7 @@ void PerplexServer::registerHandlers() {
     handlers_.insert(QStringLiteral("createSession"),
         [this](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
             if (!state.authenticated || state.userId <= 0) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                setFailure(reply, Error::NotLoggedIn);
                 return;
             }
 
@@ -280,8 +333,7 @@ void PerplexServer::registerHandlers() {
                     "Default Course", JoinCodes::generateCourseCode(),
                     false, true, state.userId, std::chrono::system_clock::now());
                 if (!createdCourse.isOk()) {
-                    reply[Protocol::Field::kOk] = false;
-                    reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(createdCourse.error));
+                    setFailure(reply, createdCourse.error);
                     return;
                 }
                 courseId = createdCourse.value.getId();
@@ -291,8 +343,7 @@ void PerplexServer::registerHandlers() {
                 courseId, state.userId, "Session",
                 JoinCodes::generateSessionCode(), std::chrono::system_clock::now());
             if (!created.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(created.error));
+                setFailure(reply, created.error);
                 return;
             }
 
@@ -303,8 +354,7 @@ void PerplexServer::registerHandlers() {
     handlers_.insert(QStringLiteral("saveInput"),
         [this](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             if (!state.authenticated || state.userId <= 0) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                setFailure(reply, Error::NotLoggedIn);
                 return;
             }
 
@@ -317,8 +367,7 @@ void PerplexServer::registerHandlers() {
             if (type == QStringLiteral("Lost")) {
                 Result<LostPing> res = db_->addLostPing(sessionId, state.userId, time);
                 if (!res.isOk()) {
-                    reply[Protocol::Field::kOk] = false;
-                    reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                    setFailure(reply, res.error);
                     return;
                 }
                 data["inputId"] = res.value.getId();
@@ -326,8 +375,7 @@ void PerplexServer::registerHandlers() {
                 const std::string text = inputObj["text"].toString().toStdString();
                 Result<SessionQuestion> res = db_->addQuestion(sessionId, state.userId, time, text);
                 if (!res.isOk()) {
-                    reply[Protocol::Field::kOk] = false;
-                    reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                    setFailure(reply, res.error);
                     return;
                 }
                 data["inputId"] = res.value.getId();
@@ -340,8 +388,7 @@ void PerplexServer::registerHandlers() {
     handlers_.insert(QStringLiteral("saveSessionEnd"),
         [this](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             if (!state.authenticated || state.userId <= 0) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                setFailure(reply, Error::NotLoggedIn);
                 return;
             }
 
@@ -349,8 +396,7 @@ void PerplexServer::registerHandlers() {
             const auto endTime = isoStringToTime(request["endTime"].toString());
             Result<bool> res = db_->setSessionEnd(sessionId, endTime);
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             reply[Protocol::Field::kOk] = true;
@@ -359,16 +405,14 @@ void PerplexServer::registerHandlers() {
     handlers_.insert(QStringLiteral("loadSession"),
         [this](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             if (!state.authenticated || state.userId <= 0) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                setFailure(reply, Error::NotLoggedIn);
                 return;
             }
 
             const int sessionId = request["sessionId"].toInt(0);
             Result<Session> res = db_->loadSession(sessionId);
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             reply[Protocol::Field::kOk] = true;
@@ -378,8 +422,7 @@ void PerplexServer::registerHandlers() {
     handlers_.insert(QStringLiteral("listSessionsForUser"),
         [this](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
             if (!state.authenticated || state.userId <= 0) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(Error::NotLoggedIn));
+                setFailure(reply, Error::NotLoggedIn);
                 return;
             }
 
@@ -427,8 +470,7 @@ void PerplexServer::registerHandlers() {
 
             Result<Course> res = state.model->createCourse(name.toStdString(), anonymous, shared);
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             reply[Protocol::Field::kOk] = true;
@@ -440,8 +482,7 @@ void PerplexServer::registerHandlers() {
             const QString code = request[Protocol::Field::kJoinCode].toString();
             Result<Course> res = state.model->joinCourse(code.toStdString());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             pushCourseChanged(client, res.value.getId());  // educator sees the new student
@@ -453,8 +494,7 @@ void PerplexServer::registerHandlers() {
         [](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
             Result<std::vector<Course>> res = state.model->getCourses();
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             QJsonObject data;
@@ -468,12 +508,15 @@ void PerplexServer::registerHandlers() {
             const int courseId = request[Protocol::Field::kCourseId].toInt();
             Result<CourseDetail> res = state.model->getCourse(courseId);
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
+            // The course page needs its session list too (newest first,
+            // already redacted per user by AppModel: S12).
+            QJsonObject data = Protocol::toJson(res.value.course);
+            data[Protocol::Field::kSessions] = Protocol::toJson(res.value.sessions);
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value.course);
+            reply[Protocol::Field::kData] = data;
         });
 
     handlers_.insert(Protocol::Request::kStartSession,
@@ -483,8 +526,7 @@ void PerplexServer::registerHandlers() {
 
             Result<OpenedSession> res = state.model->startSession(courseId, name.toStdString());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             setOpenSession(state, res.value.session.getId(), res.value.session.getCourseId());
@@ -498,8 +540,7 @@ void PerplexServer::registerHandlers() {
             const QString code = request[Protocol::Field::kJoinCode].toString();
             Result<OpenedSession> res = state.model->joinSession(code.toStdString());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             setOpenSession(state, res.value.session.getId(), res.value.session.getCourseId());
@@ -515,8 +556,7 @@ void PerplexServer::registerHandlers() {
             const int sessionId = request[Protocol::Field::kSessionId].toInt();
             Result<OpenedSession> res = state.model->openSession(sessionId);
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             setOpenSession(state, res.value.session.getId(), res.value.session.getCourseId());
@@ -529,8 +569,7 @@ void PerplexServer::registerHandlers() {
             const int sessionId = request[Protocol::Field::kSessionId].toInt();
             Result<Session> res = state.model->endSession(sessionId);
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
             // Everyone in the room learns it locked, students too (they can
@@ -1005,6 +1044,8 @@ void PerplexServer::registerHandlers() {
 
 void PerplexServer::onNewConnection() {
     QWebSocket* client = server_->nextPendingConnection();
+    // Qt drops (and closes on) anything bigger than this before we parse it.
+    client->setMaxAllowedIncomingMessageSize(Protocol::kMaxMessageBytes);
     connect(client, &QWebSocket::textMessageReceived, this,
             &PerplexServer::onTextMessageReceived);
     connect(client, &QWebSocket::disconnected, this,
@@ -1027,8 +1068,14 @@ void PerplexServer::onTextMessageReceived(const QString& message) {
         return;
     }
 
-    const QJsonDocument doc = QJsonDocument::fromJson(message.toUtf8());
-    if (!doc.isObject()) {
+    const QByteArray bytes = message.toUtf8();
+    const QJsonDocument doc = QJsonDocument::fromJson(bytes);
+    if (bytes.size() > Protocol::kMaxMessageBytes || !doc.isObject()) {
+        // Not one JSON object (or too big): answer, so the app isn't left
+        // waiting, but run nothing (N3).
+        QJsonObject resp = Protocol::makeMessage(Protocol::Reply::kError);
+        setFailure(resp, Error::BadRequest);
+        client->sendTextMessage(Protocol::encode(resp));
         return;
     }
 
@@ -1070,7 +1117,11 @@ void PerplexServer::onTextMessageReceived(const QString& message) {
     response[Protocol::Field::kType] = type;
     response[Protocol::Field::kOk] = false;
 
-    handlerIt.value()(client, state, params, response);
+    if (!hasRequiredFields(type, params)) {
+        setFailure(response, Error::BadRequest);
+    } else {
+        handlerIt.value()(client, state, params, response);
+    }
 
     client->sendTextMessage(QJsonDocument(response).toJson(QJsonDocument::Compact));
 }

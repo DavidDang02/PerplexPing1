@@ -44,8 +44,8 @@ namespace Protocol {
 
 // Sent in "hello". Bump when a message changes shape.
 inline constexpr int kVersion = 2;
-inline constexpr quint16 kDefaultPort = 12345;
-inline const QString kDefaultServer = QStringLiteral("ws://localhost:12345");
+inline constexpr quint16 kDefaultPort = 8081;  // same as server_main / main
+inline const QString kDefaultServer = QStringLiteral("ws://localhost:8081");
 // The server drops any message longer than this (bytes).
 inline constexpr int kMaxMessageBytes = 64 * 1024;
 // "checkRecording" carries at most this many candidates (newest first).

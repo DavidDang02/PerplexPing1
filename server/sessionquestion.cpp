@@ -51,7 +51,11 @@ void SessionQuestion::setAuthor(int userId, const std::string& userName) {
 }
 
 void SessionQuestion::hideAuthor() {
+    // Forget who it was, not just flag it, so nothing after Visibility can
+    // read the name by mistake (header: id 0 and name "" unless Known).
     this->authorState = AuthorState::Hidden;
+    this->authorId = 0;
+    this->authorName = "";
 }
 
 void SessionQuestion::setAuthorDeleted() {

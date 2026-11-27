@@ -452,8 +452,12 @@ Result<Session> AppModel::endSession(int sessionId) {
         return Error::SessionEnded;
     }
 
-    if (!db->setSessionEnd(sessionId, getNow()).isOk()) {
+    const Result<bool> ended = db->setSessionEnd(sessionId, getNow());
+    if (!ended.isOk()) {
         return Error::StorageError;
+    }
+    if (!ended.value) {
+        return Error::SessionEnded;  // ended a moment ago on another device
     }
     return db->getSession(sessionId);
 }
@@ -475,8 +479,12 @@ Result<Session> AppModel::publishSession(int sessionId) {
         return Error::SessionAlreadyPublished;
     }
 
-    if (!db->setSessionPublished(sessionId, getNow()).isOk()) {
+    const Result<bool> published = db->setSessionPublished(sessionId, getNow());
+    if (!published.isOk()) {
         return Error::StorageError;
+    }
+    if (!published.value) {
+        return Error::SessionAlreadyPublished;  // published a moment ago elsewhere
     }
     return db->getSession(sessionId);
 }
@@ -551,9 +559,7 @@ Result<LostPingChange> AppModel::addLost(int sessionId) {
         return pingRes.error;
     }
 
-    LostPing ping = pingRes.value;
-    ping.setAuthor(currentUser->getId(), currentUser->getName());
-    return LostPingChange{course, rawRes.value, ping};
+    return LostPingChange{course, rawRes.value, pingRes.value};
 }
 
 Result<LostPingChange> AppModel::deleteLost(int pingId) {
@@ -575,16 +581,16 @@ Result<LostPingChange> AppModel::deleteLost(int pingId) {
     if (!rawRes.value.isLive()) {
         return Error::SessionEnded;
     }
-    if (pingRes.value.getAuthorId() != currentUser->getId()) {
-        return Error::NotYourInput;
+    if (!pingRes.value.isBy(currentUser->getId())) {
+        // A student can't see a classmate's live ping, so it "doesn't exist"
+        // for them (appmodel.h: NoSuchInput if not visible to the user).
+        return viewer.role == CourseRole::Educator ? Error::NotYourInput : Error::NoSuchInput;
     }
 
-    LostPing rawBefore = pingRes.value;
-    rawBefore.setAuthor(currentUser->getId(), currentUser->getName());
     if (!db->deleteLostPing(pingId).isOk()) {
         return Error::StorageError;
     }
-    return LostPingChange{course, rawRes.value, rawBefore};
+    return LostPingChange{course, rawRes.value, pingRes.value};
 }
 
 Result<QuestionChange> AppModel::addQuestion(int sessionId, const std::string& text) {
@@ -611,9 +617,7 @@ Result<QuestionChange> AppModel::addQuestion(int sessionId, const std::string& t
         return qRes.error;
     }
 
-    SessionQuestion q = qRes.value;
-    q.setAuthor(currentUser->getId(), currentUser->getName());
-    return QuestionChange{course, rawRes.value, q, 0, false};
+    return QuestionChange{course, rawRes.value, qRes.value, 0, false};
 }
 
 Result<QuestionChange> AppModel::editQuestion(int questionId, const std::string& text) {
@@ -635,8 +639,9 @@ Result<QuestionChange> AppModel::editQuestion(int questionId, const std::string&
     if (!rawRes.value.isLive()) {
         return Error::SessionEnded;
     }
-    if (qRes.value.getAuthorId() != currentUser->getId()) {
-        return Error::NotYourInput;
+    if (!qRes.value.isBy(currentUser->getId())) {
+        // Same as deleteLost: a classmate's live question is invisible.
+        return viewer.role == CourseRole::Educator ? Error::NotYourInput : Error::NoSuchInput;
     }
 
     const std::string trimmed = Validation::trim(text);
@@ -648,9 +653,11 @@ Result<QuestionChange> AppModel::editQuestion(int questionId, const std::string&
         return Error::StorageError;
     }
 
-    SessionQuestion updated = db->getQuestion(questionId).value;
-    updated.setAuthor(currentUser->getId(), currentUser->getName());
-    return QuestionChange{course, rawRes.value, updated, 0, false};
+    Result<SessionQuestion> updated = db->getQuestion(questionId);
+    if (!updated.isOk()) {
+        return Error::StorageError;
+    }
+    return QuestionChange{course, rawRes.value, updated.value, 0, false};
 }
 
 Result<QuestionChange> AppModel::deleteQuestion(int questionId) {
@@ -670,30 +677,28 @@ Result<QuestionChange> AppModel::deleteQuestion(int questionId) {
         return Error::NoSuchInput;
     }
 
+    // Live: only the author (I5). Ended: only the educator, as moderation
+    // (I7). Each refusal says which rule stopped it.
+    const bool isAuthor = qRes.value.isBy(currentUser->getId());
     bool byModerator = false;
     if (rawRes.value.isLive()) {
-        if (qRes.value.getAuthorId() != currentUser->getId()) {
-            return Error::NotYourInput;
+        if (!isAuthor) {
+            if (viewer.role == CourseRole::Educator) {
+                return Error::SessionNotEnded;  // moderate after the session
+            }
+            return Error::NoSuchInput;  // a classmate's live question is invisible
         }
     } else {
         if (viewer.role != CourseRole::Educator) {
-            return Error::NotCourseEducator;
+            return isAuthor ? Error::SessionEnded : Error::NotCourseEducator;  // I6 freeze
         }
         byModerator = true;
-    }
-
-    SessionQuestion before = qRes.value;
-    if (before.getAuthorId() > 0) {
-        const auto uRes = db->getUser(before.getAuthorId());
-        if (uRes.isOk()) {
-            before.setAuthor(before.getAuthorId(), uRes.value.getName());
-        }
     }
 
     if (!db->deleteQuestion(questionId).isOk()) {
         return Error::StorageError;
     }
-    return QuestionChange{course, rawRes.value, before, 0, byModerator};
+    return QuestionChange{course, rawRes.value, qRes.value, 0, byModerator};
 }
 
 // ================= Answers [F4] =================
@@ -720,6 +725,18 @@ Result<QuestionChange> AppModel::addAnswer(int questionId, const std::string& te
     if (viewer.role == CourseRole::Student && !rawRes.value.isPublished()) {
         return Error::SessionNotPublished;
     }
+    // Only a question this user can see can be answered (A2). Visibility
+    // decides, on a copy holding just this question, so the rule (questions
+    // shared or not) lives in one place.
+    {
+        Session only = rawRes.value;
+        only.setLostPings({});
+        only.setQuestions({qRes.value});
+        Visibility::redactSession(only, course, viewer);
+        if (only.getQuestions().empty()) {
+            return Error::NoSuchInput;
+        }
+    }
 
     const std::string trimmed = Validation::trim(text);
     if (const Error err = Validation::checkAnswer(trimmed); err != Error::None) {
@@ -732,8 +749,8 @@ Result<QuestionChange> AppModel::addAnswer(int questionId, const std::string& te
     }
 
     Result<SessionQuestion> updatedQ = db->getQuestion(questionId);
-    for (auto& a : const_cast<std::vector<Answer>&>(updatedQ.value.getAnswers())) {
-        a.setByEducator(course.isEducator(a.getAuthorId()));
+    if (!updatedQ.isOk()) {
+        return Error::StorageError;
     }
     return QuestionChange{course, rawRes.value, updatedQ.value, aRes.value.getId(), false};
 }
@@ -773,8 +790,8 @@ Result<QuestionChange> AppModel::editAnswer(int answerId, const std::string& tex
     }
 
     Result<SessionQuestion> updatedQ = db->getQuestion(qRes.value.getId());
-    for (auto& a : const_cast<std::vector<Answer>&>(updatedQ.value.getAnswers())) {
-        a.setByEducator(course.isEducator(a.getAuthorId()));
+    if (!updatedQ.isOk()) {
+        return Error::StorageError;
     }
     return QuestionChange{course, rawRes.value, updatedQ.value, answerId, false};
 }
@@ -809,8 +826,8 @@ Result<QuestionChange> AppModel::deleteAnswer(int answerId) {
     }
 
     Result<SessionQuestion> updatedQ = db->getQuestion(qRes.value.getId());
-    for (auto& a : const_cast<std::vector<Answer>&>(updatedQ.value.getAnswers())) {
-        a.setByEducator(course.isEducator(a.getAuthorId()));
+    if (!updatedQ.isOk()) {
+        return Error::StorageError;
     }
     return QuestionChange{course, rawRes.value, updatedQ.value, answerId, false};
 }
@@ -886,9 +903,15 @@ Result<Session> AppModel::matchRecording(int sessionId, const std::vector<Record
         return Error::RecordingNotReady;
     }
 
+    // The candidates come from the app, so they get the same checks as a
+    // pasted link (R2): no javascript: or other non-http(s) URLs saved.
     const auto& candidate = candidates[index];
+    const std::string url = Validation::trim(candidate.viewerUrl);
+    if (const Error err = Validation::checkRecordingUrl(url); err != Error::None) {
+        return err;
+    }
     const long long offset = Recording::getOffsetBetween(candidate.start, rawRes.value.getStartTime());
-    Recording rec(candidate.viewerUrl, offset, RecordingSource::Panopto);
+    Recording rec(url, offset, RecordingSource::Panopto);
     if (!db->setRecording(sessionId, rec).isOk()) {
         return Error::StorageError;
     }

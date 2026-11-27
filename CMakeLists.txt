@@ -86,6 +86,7 @@ if(BUILD_TESTS)
         tests/test_session_start_end.cpp
         tests/test_sessioninput.cpp
         tests/test_validation.cpp
+        tests/test_viewtext.cpp
         ${APP_SOURCES_NO_MAIN}
         client/database.cpp
     )
@@ -98,6 +99,9 @@ if(BUILD_TESTS)
         tests/test_server_appmodel.cpp
         tests/test_server_auth.cpp
         tests/test_server_live.cpp
+        tests/test_protocol.cpp
+        tests/test_model_rules.cpp
+        tests/test_classes.cpp
         tests/test_validation.cpp
         ${SERVER_MODEL_SOURCES}
         server/perplexserver.cpp
