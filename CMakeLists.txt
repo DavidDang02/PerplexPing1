@@ -89,6 +89,7 @@ if(BUILD_TESTS)
     add_executable(app_tests
         tests/test_main.cpp
         tests/test_viewtext.cpp
+        tests/test_e2e.cpp
         ${APP_SOURCES_NO_MAIN}
         server/database.cpp
         server/appmodel.cpp
