@@ -7,35 +7,44 @@
 
 #include <QString>
 
+#include "appcontroller.h"
+#include "course.h"
 #include "error.h"
 #include "session.h"
-#include "sessioninput.h"
+#include "sessionquestion.h"
 
 namespace ViewText {
 
 // "Nov 15, 2:15 PM" in the computer's time zone.
 QString formatClockTime(Session::Clock::time_point time);
 
-// "50 min", "<1 min", or "no end time" for a session that was never ended
-// (the app was killed instead of quit).
-QString formatDuration(const Session& session);
+// "<1 min", "50 min", "1 h 15 min".
+QString formatDuration(Session::Clock::time_point start, Session::Clock::time_point end);
 
-// 754 -> "12:34 in"
+// Seconds into a session or video: 754 -> "12:34", 3725 -> "1:02:05".
 QString formatOffset(long long seconds);
 
-// "12:34 in · I'm lost" or "12:34 in · Q: what is a foreign key?"
-QString formatInput(const Session& session, const SessionInput& input);
+// "Live now" / "In review" / "Published".
+QString formatStatus(SessionStatus status);
 
-// One row of the previous-sessions list:
-// "Nov 15, 2:15 PM  ·  50 min  ·  Lost: 3  ·  Questions: 1"
-QString formatSessionRow(const Session& session);
+// "Educator" / "Student".
+QString formatRole(CourseRole role);
 
-// "Session in progress  ·  Lost: 3  ·  Questions: 1"
+// The author line: the name, "Anonymous" or "Deleted user".
+QString formatAuthor(AuthorState state, const std::string& name);
+
+// One row of a course's session list:
+// "Lecture 3  ·  Nov 15, 2:15 PM  ·  50 min  ·  Lost: 3  ·  Questions: 1  ·  Published"
+QString formatSessionRow(const SessionSummary& session);
+
+// "Live  ·  Lost: 3  ·  Questions: 1"
 QString formatLiveStatus(const Session& session);
 
-// The sentence shown for each Error the model gives. "" for None. The one
-// place error codes become words (the final project's server sends the same
-// codes, so this file keeps working there).
+// The short confirmation for each Notice the controller sends.
+QString getNoticeText(AppController::Notice notice);
+
+// The sentence shown for each Error. "" for None. The one place error
+// codes become words.
 QString getErrorText(Error error);
 
 }  // namespace ViewText

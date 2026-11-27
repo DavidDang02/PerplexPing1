@@ -17,25 +17,10 @@ option(BUILD_CLIENT "Build the client (app) executable" ON)
 option(BUILD_SERVER "Build the server (perplexing_server) executable" ON)
 option(BUILD_TESTS  "Build the database/test executables" ON)
 
-# Collect source files for client app.
-file(GLOB APP_SOURCES CONFIGURE_DEPENDS client/*.cpp client/*.ui)
-
-# The client app builds against the OLD client code. The database (Result<T>)
-# implementation is part of the NEW server-side layer; strip it from the client
-# source list so the client never links the new code.
-list(REMOVE_ITEM APP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/client/database.cpp)
-
-# The test binary must not include main.cpp, or you get a
-# "duplicate main" link error (tests/test_main.cpp provides main()).
-set(APP_SOURCES_NO_MAIN ${APP_SOURCES})
-list(REMOVE_ITEM APP_SOURCES_NO_MAIN ${CMAKE_CURRENT_SOURCE_DIR}/client/main.cpp)
-
-# Server model sources
-set(SERVER_MODEL_SOURCES
-    server/database.cpp
-    server/appmodel.cpp
-    server/passwordhasher.cpp
-    server/permissions.cpp
+# Shared by the app and the server: the data classes, the rules they carry
+# (Validation, Filters/Timeline), the error codes and the message format.
+# One copy, so the two sides can't drift apart.
+set(SHARED_SOURCES
     server/error.cpp
     server/course.cpp
     server/session.cpp
@@ -49,11 +34,33 @@ set(SERVER_MODEL_SOURCES
     server/filters.cpp
 )
 
+# Server only: storage, the model with every permission rule, passwords.
+set(SERVER_MODEL_SOURCES
+    ${SHARED_SOURCES}
+    server/database.cpp
+    server/appmodel.cpp
+    server/passwordhasher.cpp
+    server/permissions.cpp
+)
+
+# The app: controller (ServerClient, AppController, Panopto) and view.
+# main.cpp is listed separately so the tests can link everything else.
+set(APP_SOURCES_NO_MAIN
+    ${SHARED_SOURCES}
+    client/serverclient.cpp
+    client/appcontroller.cpp
+    client/panoptoclient.h
+    client/viewtext.cpp
+    client/loginpage.cpp
+    client/loginpage.ui
+    client/mainwindow.cpp
+)
+
 # ---- GUI client ----
 if(BUILD_CLIENT)
-    add_executable(app ${APP_SOURCES})
-    target_link_libraries(app PRIVATE Qt6::Widgets Qt6::Sql Qt6::WebSockets)
-    target_include_directories(app PRIVATE client)
+    add_executable(app client/main.cpp ${APP_SOURCES_NO_MAIN})
+    target_link_libraries(app PRIVATE Qt6::Widgets Qt6::WebSockets)
+    target_include_directories(app PRIVATE client server)
 endif()
 
 # ---- Central server ----
@@ -77,22 +84,20 @@ if(BUILD_TESTS)
     target_link_libraries(db_tests PRIVATE Qt6::Sql)
     target_include_directories(db_tests PRIVATE server)
 
-    add_executable(test_build
+    # The app's controller and view text, driven against a real server
+    # (tests/test_e2e.cpp runs whole user flows: teacher + students).
+    add_executable(app_tests
         tests/test_main.cpp
-        tests/test_appmodel.cpp
-        tests/test_session_contract.cpp
-        tests/test_session_after_end.cpp
-        tests/test_session_lostButtonClicked.cpp
-        tests/test_session_offsets.cpp
-        tests/test_session_start_end.cpp
-        tests/test_sessioninput.cpp
-        tests/test_validation.cpp
         tests/test_viewtext.cpp
         ${APP_SOURCES_NO_MAIN}
-        client/database.cpp
+        server/database.cpp
+        server/appmodel.cpp
+        server/passwordhasher.cpp
+        server/permissions.cpp
+        server/perplexserver.cpp
     )
-    target_link_libraries(test_build PRIVATE Qt6::Widgets Qt6::Sql Qt6::WebSockets)
-    target_include_directories(test_build PRIVATE client tests)
+    target_link_libraries(app_tests PRIVATE Qt6::Widgets Qt6::Sql Qt6::WebSockets)
+    target_include_directories(app_tests PRIVATE client server tests)
 
     add_executable(server_tests
         tests/test_main.cpp
@@ -104,6 +109,10 @@ if(BUILD_TESTS)
         tests/test_model_rules.cpp
         tests/test_classes.cpp
         tests/test_filters.cpp
+        tests/test_session_after_end.cpp
+        tests/test_session_lostButtonClicked.cpp
+        tests/test_session_offsets.cpp
+        tests/test_session_start_end.cpp
         tests/test_validation.cpp
         ${SERVER_MODEL_SOURCES}
         server/perplexserver.cpp
@@ -112,7 +121,7 @@ if(BUILD_TESTS)
     target_include_directories(server_tests PRIVATE server tests)
 
     enable_testing()
-    add_test(NAME test_build COMMAND test_build)
+    add_test(NAME app_tests COMMAND app_tests)
     add_test(NAME db_tests COMMAND db_tests)
     add_test(NAME server_tests COMMAND server_tests)
 endif()

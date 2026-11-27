@@ -1,71 +1,84 @@
-// CLIENT SIDE: ServerClient wraps a QWebSocket connection and implements the
-// DataStore interface by making blocking request/response calls over WebSocket.
+// CONTROLLER (network): the app's one WebSocket connection to PerplexServer.
+// Sends requests and hands each reply to the callback given with it; hands
+// pushes (messages that are not replies) to whoever listens to
+// pushReceived. Never blocks: the window keeps responding while it waits.
 //
-// Each call sends a JSON request envelope with a unique ID, then spins a local
-// QEventLoop until the matching response arrives. The caller thread is blocked
-// (main thread for GUI app), which is acceptable for this prototype.
+// It knows the message envelope (CONTRACT.md 6), nothing about what the
+// messages mean. AppController does that.
+//
+//   client.send(Protocol::Request::kAddLost, {{"sessionId", 7}},
+//               [](const QJsonObject& reply) { ...reply["ok"]... });
+//
+// If the connection drops, every waiting request gets a failed reply with
+// code ServerUnreachable, and the client tries to reconnect every couple of
+// seconds until it is back (connectionChanged tells the app both times).
 
 #pragma once
 
-#include <atomic>
-#include <chrono>
-#include <string>
-#include <vector>
+#include <functional>
 
-#include <QWebSocket>
-#include <QAbstractSocket>
-#include <QEventLoop>
+#include <QHash>
+#include <QJsonObject>
+#include <QObject>
 #include <QTimer>
 #include <QUrl>
+#include <QWebSocket>
 
-#include "datastore.h"
-#include "protocol.h"
-#include "session.h"
-#include "sessioninput.h"
-#include "user.h"
+#include "error.h"
 
-class ServerClient : public DataStore {
+class ServerClient : public QObject {
+    Q_OBJECT
+
 public:
-    // Connects to the given WebSocket endpoint (e.g. "ws://localhost:8080").
-    // Blocks until the connection is established or the timeout expires.
-    // Returns true on success.
-    explicit ServerClient(const QString& url, int connectTimeoutMs = 5000);
+    using ReplyHandler = std::function<void(const QJsonObject& reply)>;
+
+    // How long a request may wait for its reply before it fails with
+    // ServerUnreachable.
+    static constexpr int kReplyTimeoutMs = 10000;
+    // How often to try again after the connection is lost.
+    static constexpr int kReconnectMs = 2000;
+
+    explicit ServerClient(const QUrl& url, QObject* parent = nullptr);
+    // Closes the connection without calling any waiting callback (their
+    // owners may already be gone).
     ~ServerClient() override;
 
-    bool isConnected() const {
-        return socket_.state() == QAbstractSocket::ConnectedState;
-    }
+    // Opens the connection (and keeps reopening it if it drops).
+    void start();
+    bool isConnected() const;
+    QUrl getUrl() const;
 
-    // Not copyable (holds a socket).
-    ServerClient(const ServerClient&) = delete;
-    ServerClient& operator=(const ServerClient&) = delete;
+    // Sends {"id": n, "type": type, ...fields}. `onReply` runs exactly once:
+    // with the server's reply, or with {"ok": false, "code":
+    // "ServerUnreachable"} if there is no connection, it drops, or no reply
+    // comes within kReplyTimeoutMs. Returns the request id.
+    int send(const QString& type, const QJsonObject& fields, ReplyHandler onReply);
 
-    // ---- Accounts ----
-    Result<User> registerUser(const std::string& name,
-                              const std::string& password) override;
-    Result<User> logIn(const std::string& name,
-                       const std::string& password) override;
+    // The error in a failed reply (None if it worked).
+    static Error getError(const QJsonObject& reply);
 
-    // ---- Sessions ----
-    Result<Session> createSession(int userId) override;
-    Result<SessionInput> saveInput(int sessionId, int userId,
-                                   SessionInput input) override;
-    Result<bool> saveSessionEnd(int sessionId,
-                                Session::Clock::time_point endTime) override;
-    Result<Session> loadSession(int sessionId) override;
-    Result<std::vector<Session>> listSessionsForUser(int userId) override;
+signals:
+    void connectionChanged(bool connected);
+    void pushReceived(const QJsonObject& push);  // has "type", never "ok"
 
 private:
-    ProtocolResponse sendAndWait(const QJsonObject& request);
+    struct Pending {
+        ReplyHandler onReply;
+        qint64 deadlineMs = 0;
+    };
 
-    ProtocolResponse sendAuthOp(const std::string& op, const QJsonObject& params);
-    ProtocolResponse sendSessionOp(const std::string& op,
-                                   const QJsonObject& params);
+    void onText(const QString& text);
+    void onDisconnected();
+    void failAll();
+    void checkTimeouts();
+    static QJsonObject makeUnreachable(const QString& type);
 
-    int64_t nextId();
-
-    QWebSocket socket_;
-    QUrl url_;
-    std::atomic<int64_t> nextRequestId_{1};
-    int connectTimeoutMs_;
+    QWebSocket socket;
+    QUrl url;
+    QHash<int, Pending> pending;
+    QHash<int, QString> pendingTypes;
+    int nextId = 1;
+    bool started = false;
+    QTimer reconnectTimer;
+    QTimer timeoutTimer;
 };

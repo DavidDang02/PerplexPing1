@@ -14,44 +14,113 @@ QString formatClockTime(Session::Clock::time_point time) {
   return QDateTime::fromMSecsSinceEpoch(ms.count()).toString("MMM d, h:mm AP");
 }
 
-QString formatDuration(const Session& session) {
-  if (!session.isEnded()) {
-    return "no end time";
-  }
-  const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(
-      session.getEndTime() - session.getStartTime());
+QString formatDuration(Session::Clock::time_point start, Session::Clock::time_point end) {
+  const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(end - start);
   if (minutes.count() < 1) {
     return "<1 min";
   }
-  return QString("%1 min").arg(minutes.count());
+  if (minutes.count() < 60) {
+    return QString("%1 min").arg(minutes.count());
+  }
+  return QString("%1 h %2 min").arg(minutes.count() / 60).arg(minutes.count() % 60);
 }
 
 QString formatOffset(long long seconds) {
-  return QString("%1:%2 in")
-      .arg(seconds / 60, 2, 10, QChar('0'))
-      .arg(seconds % 60, 2, 10, QChar('0'));
-}
-
-QString formatInput(const Session& session, const SessionInput& input) {
-  const QString when = formatOffset(session.getOffsetSeconds(input));
-  if (input.getType() == InputType::Question) {
-    return when + " · Q: " + QString::fromStdString(input.getQuestionText());
+  if (seconds < 0) {
+    seconds = 0;
   }
-  return when + " · I'm lost";
+  if (seconds >= 3600) {
+    return QString("%1:%2:%3")
+        .arg(seconds / 3600)
+        .arg((seconds / 60) % 60, 2, 10, QChar('0'))
+        .arg(seconds % 60, 2, 10, QChar('0'));
+  }
+  return QString("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QChar('0'));
 }
 
-QString formatSessionRow(const Session& session) {
-  return QString("%1  ·  %2  ·  Lost: %3  ·  Questions: %4")
-      .arg(formatClockTime(session.getStartTime()))
-      .arg(formatDuration(session))
-      .arg(session.getPressCount())
-      .arg(session.getQuestionCount());
+QString formatStatus(SessionStatus status) {
+  switch (status) {
+    case SessionStatus::Live:      return "Live now";
+    case SessionStatus::InReview:  return "In review";
+    case SessionStatus::Published: return "Published";
+  }
+  return "";
+}
+
+QString formatRole(CourseRole role) {
+  switch (role) {
+    case CourseRole::Educator: return "Educator";
+    case CourseRole::Student:  return "Student";
+    case CourseRole::None:     return "";
+  }
+  return "";
+}
+
+QString formatAuthor(AuthorState state, const std::string& name) {
+  switch (state) {
+    case AuthorState::Known:   return QString::fromStdString(name);
+    case AuthorState::Hidden:  return "Anonymous";
+    case AuthorState::Deleted: return "Deleted user";
+  }
+  return "";
+}
+
+QString formatSessionRow(const SessionSummary& session) {
+  QString row = QString::fromStdString(session.name) + "  ·  " + formatClockTime(session.startTime);
+  if (session.isLive()) {
+    return row + "  ·  " + formatStatus(session.status);
+  }
+  row += "  ·  " + formatDuration(session.startTime, session.endTime);
+  if (session.isInReview() && session.lostCount == 0 && session.questionCount == 0 &&
+      !session.hasRecording) {
+    // A student's placeholder (S12) or an empty session: just the status.
+    return row + "  ·  " + formatStatus(session.status);
+  }
+  return row + QString("  ·  Lost: %1  ·  Questions: %2  ·  %3")
+                   .arg(session.lostCount)
+                   .arg(session.questionCount)
+                   .arg(formatStatus(session.status));
 }
 
 QString formatLiveStatus(const Session& session) {
-  return QString("Session in progress  ·  Lost: %1  ·  Questions: %2")
+  return QString("Live  ·  Lost: %1  ·  Questions: %2")
       .arg(session.getPressCount())
       .arg(session.getQuestionCount());
+}
+
+QString getNoticeText(AppController::Notice notice) {
+  using N = AppController::Notice;
+  switch (notice) {
+    case N::Registered:       return "Account created. Welcome!";
+    case N::LoggedOut:        return "You're logged out.";
+    case N::CourseCreated:    return "Course created. Share its course code with your students.";
+    case N::CourseJoined:     return "You joined the course.";
+    case N::CourseUpdated:    return "Course settings saved.";
+    case N::CourseDeleted:    return "The course was deleted.";
+    case N::SessionStarted:   return "Session started. Share the session code with your class.";
+    case N::SessionJoined:    return "You're in. Press I'm Lost whenever you're confused.";
+    case N::LostSent:         return "Got it. Your instructor will see this moment on the timeline.";
+    case N::QuestionSent:     return "Question sent.";
+    case N::QuestionUpdated:  return "Question updated.";
+    case N::QuestionDeleted:  return "Question deleted.";
+    case N::SessionEndedByEducator:
+      return "Your instructor ended the session. You'll see the timeline and answers once it's published.";
+    case N::SessionEnded:     return "Session ended. Review it, then publish it to your students.";
+    case N::SessionPublished: return "Published. Your students can see the timeline and answers now.";
+    case N::SessionRenamed:   return "Session renamed.";
+    case N::SessionDeleted:   return "The session was deleted.";
+    case N::AnswerSent:       return "Answer posted.";
+    case N::AnswerUpdated:    return "Answer updated.";
+    case N::AnswerDeleted:    return "Answer deleted.";
+    case N::RecordingAttached: return "Recording attached. Click the timeline to jump to that moment.";
+    case N::RecordingRemoved: return "Recording removed.";
+    case N::PanoptoLinked:    return "Panopto folder linked. Use Find recording after each class.";
+    case N::PasswordChanged:  return "Password changed.";
+    case N::EmailUpdated:     return "Email updated.";
+    case N::AccountDeleted:   return "Your account was deleted.";
+    case N::Reconnected:      return "Reconnected.";
+  }
+  return "";
 }
 
 QString getErrorText(Error error) {
@@ -119,7 +188,15 @@ QString getErrorText(Error error) {
     // ---- Recording ----
     case Error::RecordingUrlInvalid: return "Paste a full http(s) link to the recording.";
     case Error::RecordingOffsetInvalid: return "The start time must be within 24 hours.";
-    case Error::RecordingNotReady: return "No recording found for this session yet. Panopto may still be processing it.";
+    case Error::RecordingNotReady: return "No recording found for this session yet. Panopto may still be processing it. Try again later, or paste the link.";
+    case Error::PanoptoFolderInvalid: return "That isn't a Panopto folder.";
+    case Error::PanoptoNotConfigured: return "Panopto isn't set up in this copy of the app. Paste the recording link instead.";
+    case Error::PanoptoSignInFailed: return "Panopto sign-in didn't finish. Try again.";
+    case Error::PanoptoLinkInvalid: return "Paste a link to one of this course's lectures in Panopto (it has Viewer.aspx?id= in it).";
+    case Error::PanoptoUnreachable: return "Couldn't reach Panopto. Check your connection and try again.";
+    case Error::PanoptoFolderNotLinked: return "Link this course's Panopto folder first.";
+    // ---- App ----
+    case Error::ServerUnreachable: return "Can't reach the PerplexPing server. Reconnecting...";
   }
   // Every Error has a sentence above (tests check this); this is only
   // reached for a value outside the enum.

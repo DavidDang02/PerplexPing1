@@ -24,9 +24,14 @@ QString LoginPage::password() const {
   return ui->passwordEdit->text();
 }
 
+QString LoginPage::email() const {
+  return ui->emailEdit->text();
+}
+
 void LoginPage::clearFields() {
   ui->usernameEdit->clear();
   ui->passwordEdit->clear();
+  ui->emailEdit->clear();
   clearError();
   ui->usernameEdit->setFocus();
 }

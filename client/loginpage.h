@@ -21,6 +21,7 @@ class LoginPage : public QMainWindow {
 
   QString username() const;
   QString password() const;
+  QString email() const;  // only used by Create Account
   void clearFields();  // empties both fields and hides the error, e.g. after logging out
 
   // Shows the red error box with the sentence for `error`
