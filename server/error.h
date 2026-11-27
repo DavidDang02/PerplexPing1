@@ -88,6 +88,9 @@ enum class Error {
     PanoptoLinkInvalid,    // the pasted text is not a Panopto lecture link
     PanoptoUnreachable,    // Panopto didn't answer
     PanoptoFolderNotLinked,  // "Find recording" before the course's folder was linked
+    PanoptoPortBusy,         // another program uses the sign-in port (8080)
+    PanoptoNoAccess,         // Panopto says this account may not see that lecture/folder
+    // Keep this last: the error table's size is checked against it.
 };
 
 // The stable text sent over the network: exactly the enumerator's name,

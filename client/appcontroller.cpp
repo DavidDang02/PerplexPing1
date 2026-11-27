@@ -71,25 +71,42 @@ CourseRole AppController::getRole() const {
     return course ? course->course.getRole() : CourseRole::None;
 }
 
+QString AppController::getPanoptoFolderName() const {
+    if (!course || !course->course.hasPanoptoFolder()) {
+        return {};
+    }
+    const auto found = folderNames.find(course->course.getId());
+    return found == folderNames.end() ? QString() : found->second;
+}
+
+bool AppController::isOpen(int sessionId) const {
+    return session && session->getId() == sessionId;
+}
+
+bool AppController::hasMovedSince(int mark) const {
+    return navigation != mark;
+}
+
 // ================= Plumbing =================
 
 void AppController::request(const QString& type, const QJsonObject& fields, Handler onOk,
                             std::function<void(Error)> onFail) {
     const bool guarded = isGuarded(type);
-    if (guarded && inFlight.count(type) > 0) {
-        return;  // the same action is already on its way
+    const QString key = type + encode(fields);
+    if (guarded && inFlight.count(key) > 0) {
+        return;  // the very same action is already on its way
     }
     const bool wasBusy = isBusy();
     if (guarded) {
-        inFlight.insert(type);
+        inFlight.insert(key);
     }
     if (!wasBusy && isBusy()) {
         emit busyChanged(true);
     }
-    client->send(type, fields, [this, type, guarded, onOk = std::move(onOk),
+    client->send(type, fields, [this, type, key, guarded, onOk = std::move(onOk),
                                 onFail = std::move(onFail)](const QJsonObject& reply) {
         if (guarded) {
-            inFlight.erase(type);
+            inFlight.erase(key);
             if (!isBusy()) {
                 emit busyChanged(false);
             }
@@ -117,6 +134,7 @@ void AppController::setPage(Page newPage) {
 }
 
 void AppController::clearAll() {
+    ++navigation;
     user.reset();
     courses.clear();
     course.reset();
@@ -285,6 +303,7 @@ void AppController::closeOpenSession() {
 }
 
 void AppController::goHome() {
+    ++navigation;
     closeOpenSession();
     course.reset();
     sessionQuery.clear();
@@ -312,15 +331,29 @@ void AppController::joinCourse(const QString& courseCode) {
 }
 
 void AppController::openCourse(int courseId) {
+    const int mark = ++navigation;
     closeOpenSession();
-    request(Request::kGetCourse, {{Field::kCourseId, courseId}}, [this](const QJsonObject& data) {
-        const bool sameCourse = course && course->course.getId() == data[Field::kId].toInt();
-        if (!sameCourse) {
-            sessionQuery.clear();
-        }
-        setCourseDetail(data);
-        setPage(Page::Course);
-    });
+    request(Request::kGetCourse, {{Field::kCourseId, courseId}},
+        [this, mark](const QJsonObject& data) {
+            if (hasMovedSince(mark)) {
+                return;  // the user went elsewhere (or logged out) meanwhile
+            }
+            const bool sameCourse = course && course->course.getId() == data[Field::kId].toInt();
+            if (!sameCourse) {
+                sessionQuery.clear();
+            }
+            setCourseDetail(data);
+            setPage(Page::Course);
+        },
+        [this, mark, courseId](Error error) {
+            // Gone, or no longer a member (e.g. deleted while offline).
+            if (!hasMovedSince(mark) && error == Error::NoSuchCourse &&
+                course && course->course.getId() == courseId) {
+                course.reset();
+                setPage(Page::Courses);
+                refreshCourses();
+            }
+        });
 }
 
 void AppController::updateCourse(const QString& name, bool anonymous, bool questionsShared) {
@@ -373,22 +406,33 @@ void AppController::startSession(const QString& name) {
 }
 
 void AppController::joinSession(const QString& sessionCode) {
+    const int mark = ++navigation;
     request(Request::kJoinSession, {{Field::kJoinCode, sessionCode.trimmed()}},
-        [this](const QJsonObject& data) {
+        [this, mark](const QJsonObject& data) {
+            if (hasMovedSince(mark)) {
+                return;
+            }
             setSessionFromJson(data);
             const int courseId = session->getCourseId();
-            emit notice(Notice::SessionJoined);
             refreshCourses();  // joining by session code may have enrolled them
             // The page depends on the role in that course: load it first.
-            request(Request::kGetCourse, {{Field::kCourseId, courseId}}, [this](const QJsonObject& c) {
+            request(Request::kGetCourse, {{Field::kCourseId, courseId}}, [this, mark](const QJsonObject& c) {
+                if (hasMovedSince(mark)) {
+                    return;
+                }
                 setCourseDetail(c);
+                emit notice(getRole() == CourseRole::Educator ? Notice::EducatorJoined : Notice::SessionJoined);
                 showSessionPage();
             });
         });
 }
 
 void AppController::openSession(int sessionId) {
-    request(Request::kOpenSession, {{Field::kSessionId, sessionId}}, [this](const QJsonObject& data) {
+    const int mark = ++navigation;
+    request(Request::kOpenSession, {{Field::kSessionId, sessionId}}, [this, mark](const QJsonObject& data) {
+        if (hasMovedSince(mark)) {
+            return;
+        }
         const int previous = session ? session->getId() : 0;
         setSessionFromJson(data);
         if (previous != session->getId()) {
@@ -401,10 +445,27 @@ void AppController::openSession(int sessionId) {
             showSessionPage();
             return;
         }
-        request(Request::kGetCourse, {{Field::kCourseId, courseId}}, [this](const QJsonObject& c) {
+        request(Request::kGetCourse, {{Field::kCourseId, courseId}}, [this, mark](const QJsonObject& c) {
+            if (hasMovedSince(mark)) {
+                return;
+            }
             setCourseDetail(c);
             showSessionPage();
         });
+    },
+    [this, mark, sessionId](Error error) {
+        // Ended (students can't open it in review) or deleted, e.g. while
+        // this app was offline: leave it instead of showing a dead page.
+        if (!hasMovedSince(mark) && isOpen(sessionId) &&
+            (error == Error::SessionNotPublished || error == Error::NoSuchSession)) {
+            session.reset();
+            participants.clear();
+            if (error == Error::SessionNotPublished) {
+                emit notice(Notice::SessionEndedByEducator);
+            }
+            setPage(course ? Page::Course : Page::Courses);
+            refreshCourse();
+        }
     });
 }
 
@@ -412,6 +473,7 @@ void AppController::leaveSession() {
     if (!session) {
         return;
     }
+    ++navigation;
     closeOpenSession();
     setPage(course ? Page::Course : Page::Courses);
     refreshCourse();
@@ -421,10 +483,13 @@ void AppController::endSession() {
     if (!session) {
         return;
     }
-    request(Request::kEndSession, {{Field::kSessionId, session->getId()}}, [this](const QJsonObject& data) {
-        setSessionFromJson(data);
+    const int sessionId = session->getId();
+    request(Request::kEndSession, {{Field::kSessionId, sessionId}}, [this, sessionId](const QJsonObject& data) {
         emit notice(Notice::SessionEnded);
-        showSessionPage();
+        if (isOpen(sessionId)) {  // not if the educator already went Back
+            setSessionFromJson(data);
+            showSessionPage();
+        }
         refreshCourse();
     });
 }
@@ -433,9 +498,12 @@ void AppController::publishSession() {
     if (!session) {
         return;
     }
-    request(Request::kPublishSession, {{Field::kSessionId, session->getId()}},
-        [this](const QJsonObject& data) {
-            setSessionFromJson(data);
+    const int sessionId = session->getId();
+    request(Request::kPublishSession, {{Field::kSessionId, sessionId}},
+        [this, sessionId](const QJsonObject& data) {
+            if (isOpen(sessionId)) {
+                setSessionFromJson(data);
+            }
             emit notice(Notice::SessionPublished);
             emit stateChanged();
             refreshCourse();
@@ -483,8 +551,9 @@ void AppController::pressLost() {
 }
 
 void AppController::deleteLost(int pingId) {
-    request(Request::kDeleteLost, {{Field::kPingId, pingId}}, [this, pingId](const QJsonObject&) {
-        if (session) {
+    const int sessionId = session ? session->getId() : 0;
+    request(Request::kDeleteLost, {{Field::kPingId, pingId}}, [this, pingId, sessionId](const QJsonObject&) {
+        if (isOpen(sessionId)) {
             session->removeLostPing(pingId);
         }
         emit stateChanged();
@@ -509,17 +578,17 @@ void AppController::askQuestion(const QString& text) {
 void AppController::editQuestion(int questionId, const QString& text) {
     request(Request::kEditQuestion, {{Field::kQuestionId, questionId}, {Field::kText, text}},
         [this](const QJsonObject& data) {
-            if (session && !data.isEmpty()) {
-                session->upsertQuestion(questionFromJson(data));
-            }
+            upsertIntoOpenSession(data);
             emit notice(Notice::QuestionUpdated);
             emit stateChanged();
         });
 }
 
 void AppController::deleteQuestion(int questionId) {
-    request(Request::kDeleteQuestion, {{Field::kQuestionId, questionId}}, [this, questionId](const QJsonObject&) {
-        if (session) {
+    const int sessionId = session ? session->getId() : 0;
+    request(Request::kDeleteQuestion, {{Field::kQuestionId, questionId}},
+        [this, questionId, sessionId](const QJsonObject&) {
+        if (isOpen(sessionId)) {
             session->removeQuestion(questionId);
         }
         emit notice(Notice::QuestionDeleted);
@@ -529,12 +598,22 @@ void AppController::deleteQuestion(int questionId) {
 
 // ================= Answers =================
 
+// A reply or push with a whole question goes into the open session only if
+// it belongs to it (the user may have opened another one meanwhile).
+void AppController::upsertIntoOpenSession(const QJsonObject& questionJson) {
+    if (questionJson.isEmpty()) {
+        return;
+    }
+    SessionQuestion question = questionFromJson(questionJson);
+    if (isOpen(question.getSessionId())) {
+        session->upsertQuestion(std::move(question));
+    }
+}
+
 void AppController::addAnswer(int questionId, const QString& text) {
     request(Request::kAddAnswer, {{Field::kQuestionId, questionId}, {Field::kText, text}},
         [this](const QJsonObject& data) {
-            if (session && !data.isEmpty()) {
-                session->upsertQuestion(questionFromJson(data));
-            }
+            upsertIntoOpenSession(data);
             emit notice(Notice::AnswerSent);
             emit stateChanged();
         });
@@ -543,9 +622,7 @@ void AppController::addAnswer(int questionId, const QString& text) {
 void AppController::editAnswer(int answerId, const QString& text) {
     request(Request::kEditAnswer, {{Field::kAnswerId, answerId}, {Field::kText, text}},
         [this](const QJsonObject& data) {
-            if (session && !data.isEmpty()) {
-                session->upsertQuestion(questionFromJson(data));
-            }
+            upsertIntoOpenSession(data);
             emit notice(Notice::AnswerUpdated);
             emit stateChanged();
         });
@@ -553,9 +630,7 @@ void AppController::editAnswer(int answerId, const QString& text) {
 
 void AppController::deleteAnswer(int answerId) {
     request(Request::kDeleteAnswer, {{Field::kAnswerId, answerId}}, [this](const QJsonObject& data) {
-        if (session && !data.isEmpty()) {
-            session->upsertQuestion(questionFromJson(data));
-        }
+        upsertIntoOpenSession(data);
         emit notice(Notice::AnswerDeleted);
         emit stateChanged();
     });
@@ -579,11 +654,14 @@ void AppController::attachRecording(const QString& url, const QString& startsAt)
         emit requestFailed(Request::kAttachRecording, Error::RecordingOffsetInvalid);
         return;
     }
+    const int sessionId = session->getId();
     request(Request::kAttachRecording,
-        {{Field::kSessionId, session->getId()}, {Field::kUrl, url},
+        {{Field::kSessionId, sessionId}, {Field::kUrl, url},
          {Field::kOffsetSeconds, offset}, {Field::kSource, toText(RecordingSource::Manual)}},
-        [this](const QJsonObject& data) {
-            setSessionFromJson(data);
+        [this, sessionId](const QJsonObject& data) {
+            if (isOpen(sessionId)) {
+                setSessionFromJson(data);
+            }
             emit notice(Notice::RecordingAttached);
             emit stateChanged();
         });
@@ -593,8 +671,11 @@ void AppController::removeRecording() {
     if (!session) {
         return;
     }
-    request(Request::kRemoveRecording, {{Field::kSessionId, session->getId()}}, [this](const QJsonObject& data) {
-        setSessionFromJson(data);
+    const int sessionId = session->getId();
+    request(Request::kRemoveRecording, {{Field::kSessionId, sessionId}}, [this, sessionId](const QJsonObject& data) {
+        if (isOpen(sessionId)) {
+            setSessionFromJson(data);
+        }
         emit notice(Notice::RecordingRemoved);
         emit stateChanged();
     });
@@ -611,13 +692,14 @@ void AppController::linkPanoptoFolder(const QString& lectureLink) {
     const int courseId = course->course.getId();
     auto findAndLink = [this, courseId, lectureLink] {
         panopto->findFolderOfLink(lectureLink, [this, courseId](Error error, const QString& folderId,
-                                                                 const QString&) {
+                                                                 const QString& folderName) {
             if (error != Error::None) {
                 emit requestFailed(Request::kLinkPanoptoFolder, error);
                 return;
             }
             request(Request::kLinkPanoptoFolder, {{Field::kCourseId, courseId}, {Field::kFolderId, folderId}},
-                [this](const QJsonObject&) {
+                [this, courseId, folderName](const QJsonObject&) {
+                    folderNames[courseId] = folderName;
                     emit notice(Notice::PanoptoLinked);
                     refreshCourse();
                 });
@@ -792,11 +874,18 @@ void AppController::onConnectionChanged(bool isUp) {
     const Page wasOn = page;
     client->send(Request::kLogin, {{Field::kName, rememberedName}, {Field::kPassword, rememberedPassword}},
         [this, openCourseId, openSessionId, wasOn](const QJsonObject& reply) {
-            if (ServerClient::getError(reply) != Error::None) {
-                // E.g. the password was changed elsewhere: log in again.
+            const Error error = ServerClient::getError(reply);
+            if (error == Error::WrongLogin) {
+                // The password was changed (or the account deleted) on
+                // another device: log in again.
                 clearAll();
+                emit notice(Notice::LoggedOutElsewhere);
                 setPage(Page::Login);
-                emit requestFailed(Request::kLogin, ServerClient::getError(reply));
+                return;
+            }
+            if (error != Error::None) {
+                // Another blip (or the server is slow): keep everything; the
+                // next reconnect tries again.
                 return;
             }
             user = userFromJson(reply[Field::kData].toObject());

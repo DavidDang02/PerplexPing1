@@ -10,7 +10,7 @@
 
 TEST_CASE("ViewText: every Error has its own sentence") {
     for (int i = static_cast<int>(Error::None) + 1;
-         i <= static_cast<int>(Error::PanoptoFolderNotLinked); ++i) {
+         i <= static_cast<int>(Error::PanoptoNoAccess); ++i) {
         const Error error = static_cast<Error>(i);
         CAPTURE(getErrorCode(error));
         const QString text = ViewText::getErrorText(error);

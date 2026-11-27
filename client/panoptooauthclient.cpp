@@ -75,6 +75,9 @@ PanoptoOAuthClient::PanoptoOAuthClient(Settings settings, QObject* parent)
             connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
         }
     });
+    signInTimer.setSingleShot(true);
+    signInTimer.setInterval(kSignInTimeoutMs);
+    connect(&signInTimer, &QTimer::timeout, this, [this] { finishSignIn(Error::PanoptoSignInFailed); });
 }
 
 bool PanoptoOAuthClient::isSignedIn() const {
@@ -82,24 +85,25 @@ bool PanoptoOAuthClient::isSignedIn() const {
 }
 
 void PanoptoOAuthClient::signIn(DoneHandler done) {
+    // Every press opens a fresh sign-in (the user may have closed the last
+    // tab); everyone waiting is answered by whichever attempt finishes.
     waitingForSignIn.push_back(std::move(done));
-    if (waitingForSignIn.size() > 1) {
-        return;  // a sign-in is already open in the browser
-    }
     const quint16 port = static_cast<quint16>(settings.redirect.port(8080));
     if (!catcher.isListening() && !catcher.listen(QHostAddress::LocalHost, port)) {
-        finishSignIn(Error::PanoptoSignInFailed);  // port busy
+        finishSignIn(Error::PanoptoPortBusy);
         return;
     }
     // PKCE: send a hash of a random secret now, the secret itself with the code.
     QByteArray random(32, 0);
     for (char& c : random) {
-        c = static_cast<char>(QRandomGenerator::global()->bounded(256));
+        c = static_cast<char>(QRandomGenerator::system()->bounded(256));
     }
     verifier = base64Url(random);
     const QByteArray challenge = base64Url(QCryptographicHash::hash(verifier, QCryptographicHash::Sha256));
-    const QString state = QString::number(QRandomGenerator::global()->generate64(), 16);
-    validStates.insert(state);
+    // A new state: a callback from an older, abandoned tab no longer counts.
+    expectedState = QString::number(QRandomGenerator::system()->generate64(), 16);
+    const QString state = expectedState;
+    signInTimer.start();
 
     QUrl authorize("https://" + settings.host + "/Panopto/oauth2/connect/authorize");
     QUrlQuery query;
@@ -160,7 +164,7 @@ void PanoptoOAuthClient::onCallback(QTcpSocket* socket) {
                   "</body></html>");
     catcher.close();
     if (query.hasQueryItem("error") ||
-        !validStates.contains(query.queryItemValue("state", QUrl::FullyDecoded))) {
+        expectedState.isEmpty() || query.queryItemValue("state", QUrl::FullyDecoded) != expectedState) {
         finishSignIn(Error::PanoptoSignInFailed);
     } else if (query.hasQueryItem("access_token")) {
         token = query.queryItemValue("access_token", QUrl::FullyDecoded);
@@ -198,6 +202,9 @@ void PanoptoOAuthClient::exchangeCode(const QString& code) {
 }
 
 void PanoptoOAuthClient::finishSignIn(Error error) {
+    signInTimer.stop();
+    catcher.close();
+    expectedState.clear();
     std::vector<DoneHandler> waiting = std::exchange(waitingForSignIn, {});
     for (DoneHandler& done : waiting) {
         if (done) {
@@ -216,6 +223,8 @@ void PanoptoOAuthClient::get(const QString& path, JsonHandler done) {
         if (status == 401) {
             token.clear();  // expired: the next press signs in again
             done(Error::PanoptoSignInFailed, {});
+        } else if (status == 403) {
+            done(Error::PanoptoNoAccess, {});
         } else if (answer->error() != QNetworkReply::NoError) {
             done(status == 404 || status == 400 ? Error::PanoptoLinkInvalid : Error::PanoptoUnreachable, {});
         } else {

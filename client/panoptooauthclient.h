@@ -22,9 +22,9 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
-#include <QSet>
 #include <QString>
 #include <QTcpServer>
+#include <QTimer>
 #include <QUrl>
 
 #include "panoptoclient.h"
@@ -65,6 +65,9 @@ public:
 private:
     using JsonHandler = std::function<void(Error error, const QJsonObject& body)>;
 
+    // How long to wait for the browser sign-in before giving up.
+    static constexpr int kSignInTimeoutMs = 3 * 60 * 1000;
+
     void onCallback(QTcpSocket* socket);
     void exchangeCode(const QString& code);
     void finishSignIn(Error error);
@@ -73,8 +76,9 @@ private:
     Settings settings;
     QString token;
     QByteArray verifier;
-    QSet<QString> validStates;
+    QString expectedState;  // only the latest attempt's; cleared when it ends
     QTcpServer catcher;
+    QTimer signInTimer;     // gives up if the browser tab is closed
     QHash<QTcpSocket*, QByteArray> buffers;
     QNetworkAccessManager net;
     std::vector<DoneHandler> waitingForSignIn;

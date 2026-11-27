@@ -491,3 +491,75 @@ TEST_CASE("E2E: deleting your account logs out your other devices") {
     CHECK(phone.got(Notice::AccountDeleted));
     CHECK(phone->getUser() == nullptr);
 }
+
+TEST_CASE("E2E: a session that ended while a student was offline doesn't strand them") {
+    Lecture l;
+    App& ana = *l.ana;
+    const int sessionId = ana.open().getId();
+    const int port = l.server.port;
+    l.server.stop();
+    REQUIRE(waitFor([&] { return !ana->isConnected(); }));
+    // The educator ended it meanwhile (on the server's side).
+    REQUIRE(l.server.db.setSessionEnd(sessionId, Clock::now()).value);
+    l.server.start(port);
+    REQUIRE(waitFor([&] { return ana.got(Notice::Reconnected); }, 8000));
+    REQUIRE(waitFor([&] { return ana->getPage() == Page::Course; }));
+    CHECK_FALSE(ana->getOpenSession().has_value());
+    CHECK(ana.got(Notice::SessionEndedByEducator));
+}
+
+TEST_CASE("E2E: a password changed while offline asks to log in again") {
+    Server server;
+    App phone(server.port);
+    phone.signUp(QStringLiteral("dana"));
+    const int port = server.port;
+    server.stop();
+    REQUIRE(waitFor([&] { return !phone->isConnected(); }));
+    const int userId = phone->getUser()->getId();
+    const std::string salt = PasswordHasher::generateSaltHex();
+    REQUIRE(server.db.setPassword(userId, PasswordHasher::hashPassword("newpassword1", salt, 10), salt, 10).value);
+    server.start(port);
+    REQUIRE(waitFor([&] { return phone->getPage() == Page::Login; }, 8000));
+    CHECK(phone.got(Notice::LoggedOutElsewhere));
+    CHECK(phone.failures.empty());  // no "wrong username or password" for nothing typed
+}
+
+TEST_CASE("E2E: answering two questions quickly sends both answers") {
+    Lecture l;
+    App& prof = *l.prof;
+    App& ana = *l.ana;
+    ana->askQuestion(QStringLiteral("first?"));
+    ana->askQuestion(QStringLiteral("second?"));
+    REQUIRE(waitFor([&] { return prof.open().getQuestions().size() == 2; }));
+    prof->endSession();
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::SessionViewer; }));
+    const auto questions = prof.open().getQuestions();
+    prof->addAnswer(questions[0].getId(), QStringLiteral("one"));
+    prof->addAnswer(questions[1].getId(), QStringLiteral("two"));
+    REQUIRE(waitFor([&] {
+        const auto now = prof.open().getQuestions();
+        return now.size() == 2 && !now[0].getAnswers().empty() && !now[1].getAnswers().empty();
+    }));
+}
+
+TEST_CASE("E2E: pressing End then Back keeps the educator on the course page") {
+    Lecture l;
+    App& prof = *l.prof;
+    prof->endSession();
+    prof->leaveSession();
+    REQUIRE(waitFor([&] { return prof.got(Notice::SessionEnded); }));
+    settle();
+    CHECK(prof->getPage() == Page::Course);
+    CHECK_FALSE(prof->getOpenSession().has_value());
+}
+
+TEST_CASE("E2E: an educator joining their own session by code isn't told to press Lost") {
+    Lecture l;
+    App& prof = *l.prof;
+    prof->goHome();
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::Courses; }));
+    prof->joinSession(l.sessionCode);
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::EducatorLive; }));
+    CHECK(prof.got(Notice::EducatorJoined));
+    CHECK_FALSE(prof.got(Notice::SessionJoined));
+}

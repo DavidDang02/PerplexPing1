@@ -118,6 +118,9 @@ QString getNoticeText(AppController::Notice notice) {
     case N::PasswordChanged:  return "Password changed.";
     case N::EmailUpdated:     return "Email updated.";
     case N::AccountDeleted:   return "Your account was deleted.";
+    case N::EducatorJoined:   return "You're watching your live session.";
+    case N::LoggedOutElsewhere:
+      return "Your password was changed on another device. Log in again.";
     case N::Reconnected:      return "Reconnected.";
   }
   return "";
@@ -187,7 +190,7 @@ QString getErrorText(Error error) {
     case Error::NotYourAnswer:     return "You can only change your own answers.";
     // ---- Recording ----
     case Error::RecordingUrlInvalid: return "Paste a full http(s) link to the recording.";
-    case Error::RecordingOffsetInvalid: return "The start time must be within 24 hours.";
+    case Error::RecordingOffsetInvalid: return "Type where the session starts in the video as m:ss or h:mm:ss (e.g. 4:30), within 24 hours.";
     case Error::RecordingNotReady: return "No recording found for this session yet. Panopto may still be processing it. Try again later, or paste the link.";
     case Error::PanoptoFolderInvalid: return "That isn't a Panopto folder.";
     case Error::PanoptoNotConfigured: return "Panopto isn't set up in this copy of the app. Paste the recording link instead.";
@@ -195,6 +198,8 @@ QString getErrorText(Error error) {
     case Error::PanoptoLinkInvalid: return "Paste a link to one of this course's lectures in Panopto (it has Viewer.aspx?id= in it).";
     case Error::PanoptoUnreachable: return "Couldn't reach Panopto. Check your connection and try again.";
     case Error::PanoptoFolderNotLinked: return "Link this course's Panopto folder first.";
+    case Error::PanoptoPortBusy: return "Another program on this computer is using port 8080, which Panopto sign-in needs. Close it and try again.";
+    case Error::PanoptoNoAccess: return "Your Panopto account can't see that lecture or folder. Use a link from this course, or ask for access.";
     // ---- App ----
     case Error::ServerUnreachable: return "Can't reach the PerplexPing server. Reconnecting...";
   }

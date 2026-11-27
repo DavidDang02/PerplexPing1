@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <set>
 #include <vector>
@@ -86,6 +87,8 @@ public:
         PasswordChanged,
         EmailUpdated,
         AccountDeleted,         // also when the account was deleted on another device
+        EducatorJoined,         // the educator joined their own live session by its code
+        LoggedOutElsewhere,     // the password changed on another device while offline
         Reconnected,
     };
     Q_ENUM(Notice)
@@ -116,6 +119,9 @@ public:
     const std::vector<Participant>& getParticipants() const;
     // The role in the open course (None if no course is open).
     CourseRole getRole() const;
+    // The name of the open course's Panopto folder, if it was linked from
+    // this app since it started ("" otherwise; the server keeps only the id).
+    QString getPanoptoFolderName() const;
     bool isBusy() const;  // a request this controller sent is still waiting
 
 public slots:
@@ -196,8 +202,9 @@ private:
     using Handler = std::function<void(const QJsonObject& data)>;
 
     // Sends a request; on success runs onOk(reply["data"]), on failure emits
-    // requestFailed. Requests of the same type are not sent twice at once
-    // (a second Lost click while the first is on its way does nothing).
+    // requestFailed. The very same request (type and fields) is not sent
+    // twice at once: a second Lost click while the first is on its way does
+    // nothing, but answering two different questions quickly sends both.
     void request(const QString& type, const QJsonObject& fields, Handler onOk,
                  std::function<void(Error)> onFail = nullptr);
     void setPage(Page page);
@@ -213,6 +220,11 @@ private:
     void refreshCourse();
     void reloadSession();
     void closeOpenSession();  // tells the server, forgets the session (no page change)
+    bool isOpen(int sessionId) const;  // that session is the one on screen
+    void upsertIntoOpenSession(const QJsonObject& questionJson);
+    // The user moved (another page, logged out) since `mark` was taken:
+    // a reply to a page load from before then is dropped.
+    bool hasMovedSince(int mark) const;
     void clearAll();
 
     ServerClient* client;
@@ -228,6 +240,8 @@ private:
     std::string questionQuery;
     bool unansweredOnly = false;
     std::set<QString> inFlight;
+    int navigation = 0;  // +1 on every move to another page or user
+    std::map<int, QString> folderNames;  // course id -> linked Panopto folder name
     // Kept in memory only (never on disk), to log back in silently after the
     // connection drops; cleared on log out.
     QString rememberedName;
