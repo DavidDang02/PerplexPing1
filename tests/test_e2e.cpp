@@ -512,6 +512,7 @@ TEST_CASE("E2E: a password changed while offline asks to log in again") {
     Server server;
     App phone(server.port);
     phone.signUp(QStringLiteral("dana"));
+    settle();  // let the course list that follows sign-up arrive before the server stops
     const int port = server.port;
     server.stop();
     REQUIRE(waitFor([&] { return !phone->isConnected(); }));
