@@ -97,6 +97,7 @@ if(BUILD_TESTS)
         tests/test_passwordhasher.cpp
         tests/test_server_appmodel.cpp
         tests/test_server_auth.cpp
+        tests/test_server_live.cpp
         tests/test_validation.cpp
         ${SERVER_MODEL_SOURCES}
         server/perplexserver.cpp

@@ -90,8 +90,17 @@ void Visibility::redactSession(Session& session, const Course& course, const Vie
         session.setJoinCode("");
     }
 
+    // While live, a student sees only their own pings and questions
+    // (CONTRACT.md 3, "Live"). The educator sees all of them (counts).
+    const bool ownOnly = session.isLive() && viewer.role != CourseRole::Educator;
+
     // Lost ping author visibility (V2, V4)
-    std::vector<LostPing> pings = session.getLostPings();
+    std::vector<LostPing> pings;
+    for (const auto& ping : session.getLostPings()) {
+        if (!ownOnly || ping.isBy(viewer.userId)) {
+            pings.push_back(ping);
+        }
+    }
     for (auto& ping : pings) {
         if (course.isAnonymous() || ping.getAuthorId() != viewer.userId) {
             ping.hideAuthor();
@@ -102,6 +111,9 @@ void Visibility::redactSession(Session& session, const Course& course, const Vie
     // Question author & sharing visibility (V1, V2)
     std::vector<SessionQuestion> filteredQuestions;
     for (auto question : session.getQuestions()) {
+        if (ownOnly && !question.isBy(viewer.userId)) {
+            continue;
+        }
         if (viewer.role == CourseRole::Student && !course.areQuestionsShared() && !question.isBy(viewer.userId)) {
             continue; // Student does not see other students' questions if not shared
         }

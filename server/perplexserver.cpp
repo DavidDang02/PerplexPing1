@@ -91,6 +91,63 @@ void setFailure(QJsonObject& reply, Error error) {
     reply[Protocol::Field::kCode] = code;
 }
 
+// What one viewer may see of a changed ping: Visibility runs on a copy of
+// the session holding only this ping, so the rules are the same ones
+// openSession uses (no second copy of them here). Nothing if they may not
+// open the session (a student while it is in review) or may not see it.
+std::optional<LostPing> getPingFor(const LostPingChange& change, const Viewer& viewer) {
+    if (!Permissions::canOpenSession(viewer, change.session)) {
+        return std::nullopt;
+    }
+    Session only = change.session;
+    only.setLostPings({change.ping});
+    only.setQuestions({});
+    Visibility::redactSession(only, change.course, viewer);
+    if (only.getLostPings().empty()) {
+        return std::nullopt;
+    }
+    return only.getLostPings().front();
+}
+
+// Same for a changed question (with its answers).
+std::optional<SessionQuestion> getQuestionFor(const QuestionChange& change, const Viewer& viewer) {
+    if (!Permissions::canOpenSession(viewer, change.session)) {
+        return std::nullopt;
+    }
+    Session only = change.session;
+    only.setLostPings({});
+    only.setQuestions({change.question});
+    Visibility::redactSession(only, change.course, viewer);
+    if (only.getQuestions().empty()) {
+        return std::nullopt;
+    }
+    return only.getQuestions().front();
+}
+
+// {"type": type, "sessionId": .., "lostPing": {..}} for lostAdded.
+QJsonObject makePingMessage(const QString& type, const LostPingChange& change,
+                            const LostPing& ping) {
+    QJsonObject message = Protocol::makeMessage(type);
+    message[Protocol::Field::kSessionId] = change.session.getId();
+    message[Protocol::Field::kLostPing] = Protocol::toJson(ping);
+    return message;
+}
+
+// {"type": type, "sessionId": .., "question": {.. with answers}, "answerId": ..}
+// for question and answer changes. An answer change sends its whole
+// question, so the app just replaces that question (session.h upsertQuestion).
+QJsonObject makeQuestionMessage(const QString& type, const QuestionChange& change,
+                                const SessionQuestion& question) {
+    QJsonObject message = Protocol::makeMessage(type);
+    message[Protocol::Field::kSessionId] = change.session.getId();
+    message[Protocol::Field::kQuestionId] = change.question.getId();
+    message[Protocol::Field::kQuestion] = Protocol::toJson(question);
+    if (change.answerId != 0) {
+        message[Protocol::Field::kAnswerId] = change.answerId;
+    }
+    return message;
+}
+
 }  // namespace
 
 PerplexServer::PerplexServer(int port, Database* db, QObject* parent,
@@ -190,10 +247,11 @@ void PerplexServer::registerHandlers() {
     handlers_.insert(QStringLiteral("logIn"), handleLogin);
 
     handlers_.insert(Protocol::Request::kLogout,
-        [](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
+        [this](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
             state.model->logOut();
             state.authenticated = false;
             state.userId = -1;
+            setOpenSession(state, 0, 0);
             reply[Protocol::Field::kOk] = true;
         });
 
@@ -378,7 +436,7 @@ void PerplexServer::registerHandlers() {
         });
 
     handlers_.insert(Protocol::Request::kJoinCourse,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             const QString code = request[Protocol::Field::kJoinCode].toString();
             Result<Course> res = state.model->joinCourse(code.toStdString());
             if (!res.isOk()) {
@@ -386,6 +444,7 @@ void PerplexServer::registerHandlers() {
                 reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
                 return;
             }
+            pushCourseChanged(client, res.value.getId());  // educator sees the new student
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
@@ -418,7 +477,7 @@ void PerplexServer::registerHandlers() {
         });
 
     handlers_.insert(Protocol::Request::kStartSession,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             const int courseId = request[Protocol::Field::kCourseId].toInt();
             const QString name = request[Protocol::Field::kName].toString();
 
@@ -428,12 +487,14 @@ void PerplexServer::registerHandlers() {
                 reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
                 return;
             }
+            setOpenSession(state, res.value.session.getId(), res.value.session.getCourseId());
+            pushCourseChanged(client, courseId);  // the course page shows it live
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value.session);
         });
 
     handlers_.insert(Protocol::Request::kJoinSession,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             const QString code = request[Protocol::Field::kJoinCode].toString();
             Result<OpenedSession> res = state.model->joinSession(code.toStdString());
             if (!res.isOk()) {
@@ -441,12 +502,16 @@ void PerplexServer::registerHandlers() {
                 reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
                 return;
             }
+            setOpenSession(state, res.value.session.getId(), res.value.session.getCourseId());
+            if (res.value.newlyEnrolled) {
+                pushCourseChanged(client, res.value.course.getId());
+            }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value.session);
         });
 
     handlers_.insert(Protocol::Request::kOpenSession,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             const int sessionId = request[Protocol::Field::kSessionId].toInt();
             Result<OpenedSession> res = state.model->openSession(sessionId);
             if (!res.isOk()) {
@@ -454,12 +519,13 @@ void PerplexServer::registerHandlers() {
                 reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
                 return;
             }
+            setOpenSession(state, res.value.session.getId(), res.value.session.getCourseId());
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value.session);
         });
 
     handlers_.insert(Protocol::Request::kEndSession,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             const int sessionId = request[Protocol::Field::kSessionId].toInt();
             Result<Session> res = state.model->endSession(sessionId);
             if (!res.isOk()) {
@@ -467,87 +533,164 @@ void PerplexServer::registerHandlers() {
                 reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
                 return;
             }
+            // Everyone in the room learns it locked, students too (they can
+            // no longer open it once it is in review, S12).
+            pushToSession(client, sessionId, res.value.getCourseId(),
+                [ended = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    Session details = ended;  // details only, no items
+                    if (viewer.role != CourseRole::Educator) {
+                        details.setJoinCode("");  // S4
+                    }
+                    QJsonObject message = Protocol::makeMessage(Protocol::Reply::kSessionEnded);
+                    message[Protocol::Field::kSessionId] = ended.getId();
+                    message[Protocol::Field::kSession] = Protocol::toJson(details);
+                    return message;
+                });
+            pushCourseChanged(client, res.value.getCourseId());
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kAddLost,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            const int sessionId = request[Protocol::Field::kSessionId].toInt();
-            Result<LostPingChange> res = state.model->addLost(sessionId);
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            Result<LostPingChange> res = state.model->addLost(request[Protocol::Field::kSessionId].toInt());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value.ping);
+            if (const auto mine = getPingFor(res.value, getViewer(state, courseId))) {
+                reply[Protocol::Field::kData] = Protocol::toJson(*mine);
+            }
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    const auto ping = getPingFor(change, viewer);
+                    if (!ping) {
+                        return std::nullopt;
+                    }
+                    return makePingMessage(Protocol::Reply::kLostAdded, change, *ping);
+                });
         });
 
     handlers_.insert(Protocol::Request::kDeleteLost,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            const int pingId = request[Protocol::Field::kPingId].toInt();
-            Result<LostPingChange> res = state.model->deleteLost(pingId);
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            Result<LostPingChange> res = state.model->deleteLost(request[Protocol::Field::kPingId].toInt());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kPingId] = res.value.ping.getId();
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    // Only to those who could see the ping before it went.
+                    if (!getPingFor(change, viewer)) {
+                        return std::nullopt;
+                    }
+                    QJsonObject message = Protocol::makeMessage(Protocol::Reply::kLostDeleted);
+                    message[Protocol::Field::kSessionId] = change.session.getId();
+                    message[Protocol::Field::kPingId] = change.ping.getId();
+                    return message;
+                });
         });
 
     handlers_.insert(Protocol::Request::kAddQuestion,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            const int sessionId = request[Protocol::Field::kSessionId].toInt();
-            const QString text = request[Protocol::Field::kText].toString();
-            Result<QuestionChange> res = state.model->addQuestion(sessionId, text.toStdString());
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            Result<QuestionChange> res = state.model->addQuestion(
+                request[Protocol::Field::kSessionId].toInt(),
+                request[Protocol::Field::kText].toString().toStdString());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
+            if (const auto mine = getQuestionFor(res.value, getViewer(state, courseId))) {
+                reply[Protocol::Field::kData] = Protocol::toJson(*mine);
+            }
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    const auto question = getQuestionFor(change, viewer);
+                    if (!question) {
+                        return std::nullopt;
+                    }
+                    return makeQuestionMessage(Protocol::Reply::kQuestionAdded, change, *question);
+                });
         });
 
     handlers_.insert(Protocol::Request::kEditQuestion,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            const int questionId = request[Protocol::Field::kQuestionId].toInt();
-            const QString text = request[Protocol::Field::kText].toString();
-            Result<QuestionChange> res = state.model->editQuestion(questionId, text.toStdString());
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            Result<QuestionChange> res = state.model->editQuestion(
+                request[Protocol::Field::kQuestionId].toInt(),
+                request[Protocol::Field::kText].toString().toStdString());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
+            if (const auto mine = getQuestionFor(res.value, getViewer(state, courseId))) {
+                reply[Protocol::Field::kData] = Protocol::toJson(*mine);
+            }
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    const auto question = getQuestionFor(change, viewer);
+                    if (!question) {
+                        return std::nullopt;
+                    }
+                    return makeQuestionMessage(Protocol::Reply::kQuestionUpdated, change, *question);
+                });
         });
 
     handlers_.insert(Protocol::Request::kDeleteQuestion,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            const int questionId = request[Protocol::Field::kQuestionId].toInt();
-            Result<QuestionChange> res = state.model->deleteQuestion(questionId);
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            Result<QuestionChange> res = state.model->deleteQuestion(
+                request[Protocol::Field::kQuestionId].toInt());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kQuestionId] = res.value.question.getId();
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    // Only to those who could see the question before it went.
+                    if (!getQuestionFor(change, viewer)) {
+                        return std::nullopt;
+                    }
+                    QJsonObject message = Protocol::makeMessage(Protocol::Reply::kQuestionDeleted);
+                    message[Protocol::Field::kSessionId] = change.session.getId();
+                    message[Protocol::Field::kQuestionId] = change.question.getId();
+                    message[Protocol::Field::kByModerator] = change.byModerator;
+                    return message;
+                });
         });
 
     handlers_.insert(Protocol::Request::kAddAnswer,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            const int questionId = request[Protocol::Field::kQuestionId].toInt();
-            const QString text = request[Protocol::Field::kText].toString();
-            Result<QuestionChange> res = state.model->addAnswer(questionId, text.toStdString());
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            Result<QuestionChange> res = state.model->addAnswer(
+                request[Protocol::Field::kQuestionId].toInt(),
+                request[Protocol::Field::kText].toString().toStdString());
             if (!res.isOk()) {
-                reply[Protocol::Field::kOk] = false;
-                reply[Protocol::Reply::kError] = QString::fromStdString(getErrorCode(res.error));
+                setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
+            if (const auto mine = getQuestionFor(res.value, getViewer(state, courseId))) {
+                reply[Protocol::Field::kData] = Protocol::toJson(*mine);
+            }
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    const auto question = getQuestionFor(change, viewer);
+                    if (!question) {
+                        return std::nullopt;
+                    }
+                    return makeQuestionMessage(Protocol::Reply::kAnswerAdded, change, *question);
+                });
         });
 
     // ---- Accounts: change password, change email, delete (U6-U8) ----
@@ -602,6 +745,7 @@ void PerplexServer::registerHandlers() {
             // be logged in on other devices: log those out too (U8).
             state.authenticated = false;
             state.userId = -1;
+            setOpenSession(state, 0, 0);
             logOutOtherConnections(client, userId, Protocol::kReasonAccountDeleted);
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kReason] = Protocol::kReasonAccountDeleted;
@@ -610,7 +754,7 @@ void PerplexServer::registerHandlers() {
     // ---- Courses: settings and delete (C6, C7, C9) ----
 
     handlers_.insert(Protocol::Request::kUpdateCourse,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             // All three are sent every time (appmodel.h), so none can be left out.
             if (!Protocol::hasFields(request, {{Protocol::Field::kCourseId, 'i'},
                                                {Protocol::Field::kName, 's'},
@@ -628,17 +772,20 @@ void PerplexServer::registerHandlers() {
                 setFailure(reply, res.error);
                 return;
             }
+            pushCourseChanged(client, res.value.getId());
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kDeleteCourse,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             if (!Protocol::hasFields(request, {{Protocol::Field::kCourseId, 'i'}})) {
                 setFailure(reply, Error::BadRequest);
                 return;
             }
             const int courseId = request[Protocol::Field::kCourseId].toInt();
+            // Who to tell, worked out before the course (and their role in it) is gone.
+            const QList<QWebSocket*> members = getCourseConnections(client, courseId);
             const Error err = state.model->deleteCourse(courseId);
             if (err != Error::None) {
                 setFailure(reply, err);
@@ -646,12 +793,18 @@ void PerplexServer::registerHandlers() {
             }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kCourseId] = courseId;
+            QJsonObject message = Protocol::makeMessage(Protocol::Reply::kCourseDeleted);
+            message[Protocol::Field::kCourseId] = courseId;
+            const QString text = Protocol::encode(message);
+            for (QWebSocket* socket : members) {
+                socket->sendTextMessage(text);
+            }
         });
 
     // ---- Sessions: publish, rename, delete (S8, S9, S11) ----
 
     handlers_.insert(Protocol::Request::kPublishSession,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'}})) {
                 setFailure(reply, Error::BadRequest);
                 return;
@@ -662,12 +815,13 @@ void PerplexServer::registerHandlers() {
                 setFailure(reply, res.error);
                 return;
             }
+            pushCourseChanged(client, res.value.getCourseId());  // students can open it now
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kRenameSession,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'},
                                                {Protocol::Field::kName, 's'}})) {
                 setFailure(reply, Error::BadRequest);
@@ -680,12 +834,22 @@ void PerplexServer::registerHandlers() {
                 setFailure(reply, res.error);
                 return;
             }
+            {
+                QJsonObject message = Protocol::makeMessage(Protocol::Reply::kSessionRenamed);
+                message[Protocol::Field::kSessionId] = res.value.getId();
+                message[Protocol::Field::kCourseId] = res.value.getCourseId();
+                message[Protocol::Field::kName] = QString::fromStdString(res.value.getName());
+                const QString text = Protocol::encode(message);
+                for (QWebSocket* socket : getCourseConnections(client, res.value.getCourseId())) {
+                    socket->sendTextMessage(text);
+                }
+            }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
 
     handlers_.insert(Protocol::Request::kDeleteSession,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'}})) {
                 setFailure(reply, Error::BadRequest);
                 return;
@@ -696,6 +860,20 @@ void PerplexServer::registerHandlers() {
                 setFailure(reply, res.error);
                 return;
             }
+            {
+                QJsonObject message = Protocol::makeMessage(Protocol::Reply::kSessionDeleted);
+                message[Protocol::Field::kSessionId] = res.value.getId();
+                message[Protocol::Field::kCourseId] = res.value.getCourseId();
+                const QString text = Protocol::encode(message);
+                for (QWebSocket* socket : getCourseConnections(client, res.value.getCourseId())) {
+                    socket->sendTextMessage(text);
+                }
+                for (ClientState& other : clients_) {
+                    if (other.openSessionId == res.value.getId()) {
+                        other.openSessionId = 0;  // it is gone
+                    }
+                }
+            }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kSessionId] = res.value.getId();
             reply[Protocol::Field::kCourseId] = res.value.getCourseId();
@@ -704,12 +882,7 @@ void PerplexServer::registerHandlers() {
     // ---- Answers: edit and delete (A3, A7, A8) ----
 
     handlers_.insert(Protocol::Request::kEditAnswer,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            if (!Protocol::hasFields(request, {{Protocol::Field::kAnswerId, 'i'},
-                                               {Protocol::Field::kText, 's'}})) {
-                setFailure(reply, Error::BadRequest);
-                return;
-            }
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             Result<QuestionChange> res = state.model->editAnswer(
                 request[Protocol::Field::kAnswerId].toInt(),
                 request[Protocol::Field::kText].toString().toStdString());
@@ -717,24 +890,42 @@ void PerplexServer::registerHandlers() {
                 setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
+            if (const auto mine = getQuestionFor(res.value, getViewer(state, courseId))) {
+                reply[Protocol::Field::kData] = Protocol::toJson(*mine);
+            }
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    const auto question = getQuestionFor(change, viewer);
+                    if (!question) {
+                        return std::nullopt;
+                    }
+                    return makeQuestionMessage(Protocol::Reply::kAnswerUpdated, change, *question);
+                });
         });
 
     handlers_.insert(Protocol::Request::kDeleteAnswer,
-        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
-            if (!Protocol::hasFields(request, {{Protocol::Field::kAnswerId, 'i'}})) {
-                setFailure(reply, Error::BadRequest);
-                return;
-            }
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
             Result<QuestionChange> res = state.model->deleteAnswer(
                 request[Protocol::Field::kAnswerId].toInt());
             if (!res.isOk()) {
                 setFailure(reply, res.error);
                 return;
             }
+            const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
+            if (const auto mine = getQuestionFor(res.value, getViewer(state, courseId))) {
+                reply[Protocol::Field::kData] = Protocol::toJson(*mine);
+            }
+            pushToSession(client, res.value.session.getId(), courseId,
+                [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
+                    const auto question = getQuestionFor(change, viewer);
+                    if (!question) {
+                        return std::nullopt;
+                    }
+                    return makeQuestionMessage(Protocol::Reply::kAnswerDeleted, change, *question);
+                });
         });
 
     // ---- Recording: attach, remove, auto-match (R1-R3, R6) ----
@@ -802,6 +993,13 @@ void PerplexServer::registerHandlers() {
             }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    // The app left the session page. Nothing changes in the database.
+    handlers_.insert(Protocol::Request::kCloseSession,
+        [this](QWebSocket*, ClientState& state, const QJsonObject&, QJsonObject& reply) {
+            setOpenSession(state, 0, 0);
+            reply[Protocol::Field::kOk] = true;
         });
 }
 
@@ -882,6 +1080,7 @@ void PerplexServer::onClientDisconnected() {
     if (!client) {
         return;
     }
+    setOpenSession(clients_[client], 0, 0);  // tell the educator they left
     clients_.remove(client);
     client->deleteLater();
 }
@@ -895,8 +1094,114 @@ void PerplexServer::logOutOtherConnections(QWebSocket* except, int userId,
         it.value().model->logOut();
         it.value().authenticated = false;
         it.value().userId = -1;
+        setOpenSession(it.value(), 0, 0);
         QJsonObject message = Protocol::makeMessage(Protocol::Reply::kLoggedOut);
         message[Protocol::Field::kReason] = reason;
         it.key()->sendTextMessage(Protocol::encode(message));
     }
+}
+
+Viewer PerplexServer::getViewer(const ClientState& state, int courseId) const {
+    const User* user = state.model->getCurrentUser();
+    if (!user) {
+        return Viewer{};
+    }
+    return Viewer{user->getId(), state.model->getRole(courseId)};
+}
+
+void PerplexServer::pushToSession(QWebSocket* except, int sessionId, int courseId,
+                                  const PushBuilder& build) {
+    if (sessionId == 0) {
+        return;
+    }
+    for (auto it = clients_.cbegin(); it != clients_.cend(); ++it) {
+        if (it.key() == except || it.value().openSessionId != sessionId ||
+            !it.value().model->isLoggedIn()) {
+            continue;
+        }
+        const Viewer viewer = getViewer(it.value(), courseId);
+        if (viewer.role == CourseRole::None) {
+            continue;
+        }
+        const std::optional<QJsonObject> message = build(viewer);
+        if (message) {
+            it.key()->sendTextMessage(Protocol::encode(*message));
+        }
+    }
+}
+
+QList<QWebSocket*> PerplexServer::getCourseConnections(QWebSocket* except, int courseId) const {
+    QList<QWebSocket*> sockets;
+    for (auto it = clients_.cbegin(); it != clients_.cend(); ++it) {
+        if (it.key() != except && it.value().model->isLoggedIn() &&
+            it.value().model->getRole(courseId) != CourseRole::None) {
+            sockets.append(it.key());
+        }
+    }
+    return sockets;
+}
+
+void PerplexServer::pushCourseChanged(QWebSocket* except, int courseId) {
+    QJsonObject message = Protocol::makeMessage(Protocol::Reply::kCourseChanged);
+    message[Protocol::Field::kCourseId] = courseId;
+    const QString text = Protocol::encode(message);
+    for (QWebSocket* socket : getCourseConnections(except, courseId)) {
+        socket->sendTextMessage(text);
+    }
+}
+
+void PerplexServer::setOpenSession(ClientState& state, int sessionId, int courseId) {
+    if (state.openSessionId == sessionId) {
+        return;
+    }
+    if (state.openSessionId != 0) {
+        pushParticipantsLater(state.openSessionId, state.openCourseId);
+    }
+    state.openSessionId = sessionId;
+    state.openCourseId = courseId;
+    if (sessionId != 0) {
+        pushParticipantsLater(sessionId, courseId);
+    }
+}
+
+void PerplexServer::pushParticipantsLater(int sessionId, int courseId) {
+    QMetaObject::invokeMethod(this, [this, sessionId, courseId] {
+        std::vector<Participant> participants;
+        QList<QWebSocket*> educators;
+        bool anonymous = false;
+        for (auto it = clients_.cbegin(); it != clients_.cend(); ++it) {
+            const ClientState& state = it.value();
+            if (state.openSessionId != sessionId) {
+                continue;
+            }
+            const Viewer viewer = getViewer(state, courseId);
+            if (viewer.role == CourseRole::Educator) {
+                educators.append(it.key());
+                Result<CourseDetail> course = state.model->getCourse(courseId);
+                anonymous = course.isOk() && course.value.course.isAnonymous();
+            } else if (viewer.role == CourseRole::Student) {
+                // One line per student, even if they have the session open twice.
+                const bool listed = std::any_of(participants.begin(), participants.end(),
+                    [&](const Participant& p) { return p.userId == viewer.userId; });
+                if (!listed) {
+                    participants.push_back({viewer.userId, state.model->getCurrentUser()->getName()});
+                }
+            }
+        }
+        if (educators.isEmpty()) {
+            return;
+        }
+        if (anonymous) {
+            for (Participant& p : participants) {
+                p = Participant{};  // still counted, never named
+            }
+        }
+        QJsonObject message = Protocol::makeMessage(Protocol::Reply::kParticipants);
+        message[Protocol::Field::kSessionId] = sessionId;
+        message[Protocol::Field::kParticipants] = Protocol::toJson(participants);
+        const QString text = Protocol::encode(message);
+        for (QWebSocket* socket : educators) {
+            socket->sendTextMessage(text);
+        }
+    }, Qt::QueuedConnection);
 }

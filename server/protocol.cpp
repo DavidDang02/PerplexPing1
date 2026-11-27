@@ -98,9 +98,21 @@ QJsonObject toJson(const Session& session) {
     }
     obj[Field::kLostCount] = session.getPressCount();
     obj[Field::kQuestionCount] = session.getQuestionCount();
+    obj[Field::kHasRecording] = session.getRecording() != nullptr;
     if (session.getRecording()) {
-        obj[Field::kHasRecording] = true;
+        obj[Field::kRecording] = toJson(*session.getRecording());
     }
+    // The items this viewer may see (the server runs Visibility first).
+    QJsonArray pings;
+    for (const auto& ping : session.getLostPings()) {
+        pings.append(toJson(ping));
+    }
+    obj[Field::kLostPings] = pings;
+    QJsonArray questions;
+    for (const auto& question : session.getQuestions()) {
+        questions.append(toJson(question));
+    }
+    obj[Field::kQuestions] = questions;
     return obj;
 }
 
@@ -120,11 +132,10 @@ QJsonObject toJson(const LostPing& ping) {
     obj[Field::kPingId] = ping.getId();
     obj[Field::kSessionId] = ping.getSessionId();
     obj[Field::kTime] = toMs(ping.getTime());
-    if (ping.hasAuthor()) {
-        obj[Field::kAuthorId] = ping.getAuthorId();
-        obj[Field::kAuthorName] = QString::fromStdString(ping.getAuthorName());
-        obj[Field::kAuthorState] = toText(ping.getAuthorState());
-    }
+    // Always all three (V4): id 0 and name "" unless the author is known.
+    obj[Field::kAuthorState] = toText(ping.getAuthorState());
+    obj[Field::kAuthorId] = ping.hasAuthor() ? ping.getAuthorId() : 0;
+    obj[Field::kAuthorName] = ping.hasAuthor() ? QString::fromStdString(ping.getAuthorName()) : QString();
     return obj;
 }
 
@@ -146,11 +157,15 @@ QJsonObject toJson(const SessionQuestion& question) {
     if (question.isEdited()) {
         obj[Field::kEditedTime] = toMs(*question.getEditedTime());
     }
-    if (question.hasAuthor()) {
-        obj[Field::kAuthorId] = question.getAuthorId();
-        obj[Field::kAuthorName] = QString::fromStdString(question.getAuthorName());
-        obj[Field::kAuthorState] = toText(question.getAuthorState());
+    QJsonArray answers;
+    for (const auto& answer : question.getAnswers()) {
+        answers.append(toJson(answer));
     }
+    obj[Field::kAnswers] = answers;
+    // Always all three (V4): id 0 and name "" unless the author is known.
+    obj[Field::kAuthorState] = toText(question.getAuthorState());
+    obj[Field::kAuthorId] = question.hasAuthor() ? question.getAuthorId() : 0;
+    obj[Field::kAuthorName] = question.hasAuthor() ? QString::fromStdString(question.getAuthorName()) : QString();
     return obj;
 }
 
@@ -172,11 +187,10 @@ QJsonObject toJson(const Answer& answer) {
     if (answer.isEdited()) {
         obj[Field::kEditedTime] = toMs(*answer.getEditedTime());
     }
-    if (answer.hasAuthor()) {
-        obj[Field::kAuthorId] = answer.getAuthorId();
-        obj[Field::kAuthorName] = QString::fromStdString(answer.getAuthorName());
-        obj[Field::kAuthorState] = toText(answer.getAuthorState());
-    }
+    // Always all three (V4): id 0 and name "" unless the author is known.
+    obj[Field::kAuthorState] = toText(answer.getAuthorState());
+    obj[Field::kAuthorId] = answer.hasAuthor() ? answer.getAuthorId() : 0;
+    obj[Field::kAuthorName] = answer.hasAuthor() ? QString::fromStdString(answer.getAuthorName()) : QString();
     return obj;
 }
 
