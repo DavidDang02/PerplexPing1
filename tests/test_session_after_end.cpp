@@ -8,7 +8,8 @@ TEST_CASE("Button presses don't record after session ends") {
 	s.lostButtonClicked();
 	s.lostButtonClicked();
 	s.endSession();
-	s.lostButtonClicked();
+	CHECK_FALSE(s.lostButtonClicked());  // refused, not just ignored (I2)
+	CHECK_FALSE(s.askQuestion("too late?"));
 
 	CHECK(s.isEnded());
 	CHECK(s.getPressCount() == 2);

@@ -82,14 +82,16 @@ void SessionQuestion::setAnswers(std::vector<Answer> answers) {
 }
 
 void SessionQuestion::upsertAnswer(const Answer& answer) {
-    for (auto& a : this->answers) {
-        if (a.getId() == answer.getId()) {
-            a = answer;
-            return;
-        }
+    // Replace or add, then put it in its place (A5): a replaced answer may
+    // have changed (e.g. its author is no longer the educator).
+    auto same = std::find_if(this->answers.begin(), this->answers.end(),
+                             [&](const Answer& a) { return a.getId() == answer.getId(); });
+    if (same != this->answers.end()) {
+        this->answers.erase(same);
     }
-    this->answers.push_back(answer);
-    std::sort(this->answers.begin(), this->answers.end(), Answer::isShownBefore);
+    this->answers.insert(std::upper_bound(this->answers.begin(), this->answers.end(), answer,
+                                          Answer::isShownBefore),
+                         answer);
 }
 
 bool SessionQuestion::removeAnswer(int answerId) {

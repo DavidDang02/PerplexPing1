@@ -174,7 +174,7 @@ bool PerplexServer::listen() {
         qDebug() << "Failed to listen:" << lastError_;
         return false;
     }
-    qDebug() << "Server listening on port" << port_;
+    qDebug() << "Server listening on port" << server_->serverPort();  // the real one, also for port 0
     return true;
 }
 

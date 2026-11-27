@@ -7,10 +7,16 @@
 
 #include "answer.h"
 #include "course.h"
+#include "error.h"
+#include "joincodes.h"
 #include "lostping.h"
 #include "recording.h"
 #include "session.h"
 #include "sessionquestion.h"
+#include "user.h"
+
+#include <set>
+#include <string>
 
 namespace {
 using Clock = std::chrono::system_clock;
@@ -122,4 +128,64 @@ TEST_CASE("Session::askQuestion refuses an empty or too-long question (I3)") {
     CHECK(session.askQuestion("  why?  "));
     REQUIRE(session.getQuestions().size() == 1);
     CHECK(session.getQuestions()[0].getText() == "why?");
+}
+
+TEST_CASE("Error: every code survives the trip over the network, and codes are distinct") {
+    std::set<std::string> seen;
+    for (int i = static_cast<int>(Error::None); i <= static_cast<int>(Error::PanoptoNoAccess); ++i) {
+        const Error error = static_cast<Error>(i);
+        const std::string code = getErrorCode(error);
+        CAPTURE(code);
+        CHECK(getErrorFromCode(code) == error);
+        CHECK(seen.insert(code).second);
+    }
+    CHECK(getErrorFromCode("NoSuchThing") == Error::BadRequest);
+}
+
+TEST_CASE("Answer order: educator first, then oldest, then id (A5), also after edits") {
+    Answer student(1, 9, at(100), "student, early");
+    Answer educatorLate(2, 9, at(300), "educator, late");
+    educatorLate.setByEducator(true);
+    Answer educatorEarly(3, 9, at(200), "educator, early");
+    educatorEarly.setByEducator(true);
+    Answer tie(4, 9, at(100), "student, same time, higher id");
+    SessionQuestion question;
+    question.setAnswers({tie, educatorLate, student, educatorEarly});
+    const auto& a = question.getAnswers();
+    REQUIRE(a.size() == 4);
+    CHECK(a[0].getId() == 3);
+    CHECK(a[1].getId() == 2);
+    CHECK(a[2].getId() == 1);
+    CHECK(a[3].getId() == 4);
+    // The educator's late answer is replaced by one no longer marked
+    // educator: it moves down to its place.
+    Answer demoted = educatorLate;
+    demoted.setByEducator(false);
+    question.upsertAnswer(demoted);
+    CHECK(question.getAnswers()[1].getId() == 1);
+    CHECK(question.getAnswers().back().getId() == 2);
+    CHECK(question.removeAnswer(2));
+    CHECK_FALSE(question.removeAnswer(2));
+}
+
+TEST_CASE("JoinCodes: course codes are 6 easy-to-read characters, session codes 6 digits") {
+    const std::string allowed = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    for (int i = 0; i < 200; ++i) {
+        const std::string course = JoinCodes::generateCourseCode();
+        REQUIRE(course.size() == 6);
+        CHECK(course.find_first_not_of(allowed) == std::string::npos);
+        const std::string session = JoinCodes::generateSessionCode();
+        REQUIRE(session.size() == 6);
+        CHECK(session.find_first_not_of("0123456789") == std::string::npos);
+    }
+}
+
+TEST_CASE("User: keeps its id, name and email; the default is nobody") {
+    const User ana(7, "Ana", "ana@scu.edu");
+    CHECK(ana.getId() == 7);
+    CHECK(ana.getName() == "Ana");
+    CHECK(ana.getEmail() == "ana@scu.edu");
+    const User nobody;
+    CHECK(nobody.getId() == 0);
+    CHECK(nobody.getName().empty());
 }
