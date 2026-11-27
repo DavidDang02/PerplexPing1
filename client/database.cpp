@@ -58,6 +58,13 @@ Result<User> Database::registerUser(const std::string& name, const std::string& 
     if (name.empty() || password.empty()) {
         return Error::EmptyName;
     }
+    // Usernames ignore case: "Ana" is taken if "ana" exists.
+    QSqlQuery taken;
+    taken.prepare("SELECT 1 FROM Users WHERE user_name = :name COLLATE NOCASE;");
+    taken.bindValue(":name", QString::fromStdString(name));
+    if (!taken.exec() || taken.next()) {
+        return Error::NameTaken;
+    }
     QSqlQuery query;
     query.prepare("INSERT INTO Users (user_name, user_password) VALUES (:name, :password);");
     query.bindValue(":name", QString::fromStdString(name));

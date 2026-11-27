@@ -12,12 +12,10 @@ class SessionInput {
 public:
     using Clock = std::chrono::system_clock;
 
+    // Default constructor (for deserialization).
     SessionInput();
     // questionText is only used when type is Question.
     SessionInput(InputType type, Clock::time_point time, std::string questionText = "");
-
-    // Default constructor (for deserialization).
-    SessionInput() : id(0), type(InputType::Lost), time(), questionText() {}
 
     // Database id of this input, 0 until it is saved.
     void setId(int id);

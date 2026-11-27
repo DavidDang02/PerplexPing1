@@ -1,7 +1,6 @@
-// SERVER SIDE: SocketsServer owns a Qt WebSocketServer and a SQLite Database.
-// Each connected client is authenticated once per connection and tracked
-// per socket. Incoming JSON envelopes are dispatched to domain-specific
-// handlers that mirror the DataStore API.
+// SERVER SIDE: PerplexServer owns a Qt WebSocketServer and a SQLite Database.
+// Each connected client is tracked per socket. Incoming JSON messages use
+// the contract protocol ({"type":"...", ...fields...}).
 
 #pragma once
 
@@ -24,18 +23,18 @@ struct ClientState {
     int userId = -1;
 };
 
-class SocketsServer : public QObject {
+class PerplexServer : public QObject {
     Q_OBJECT
 public:
-    explicit SocketsServer(int port, Database* db,
+    explicit PerplexServer(int port, Database* db,
                            QObject* parent = nullptr,
                            const QHostAddress& host = QHostAddress::LocalHost);
-    ~SocketsServer() override;
+    ~PerplexServer() override;
 
     bool listen();
     int port() const;
-    QHostAddress host() const { return host_; }
-    QString lastError() const { return lastError_; }
+    QHostAddress host() const;
+    QString lastError() const;
 
 private slots:
     void onNewConnection();
@@ -43,9 +42,11 @@ private slots:
     void onClientDisconnected();
 
 private:
+    // Handler signature: receives the sender socket, client state, and the
+    // full request message. Must fill `reply` with the response object.
     using Handler = std::function<void(QWebSocket*, ClientState&,
-                                       const QJsonObject& params,
-                                       QJsonObject& response)>;
+                                       const QJsonObject& request,
+                                       QJsonObject& reply)>;
 
     void registerHandlers();
 
@@ -58,6 +59,6 @@ private:
     // Authentication state keyed by socket pointer.
     QHash<QWebSocket*, ClientState> clients_;
 
-    // Operation string -> handler.
+    // Request type string -> handler.
     QHash<QString, Handler> handlers_;
 };
