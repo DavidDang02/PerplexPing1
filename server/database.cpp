@@ -645,6 +645,7 @@ Result<Session> Database::loadSession(int sessionId) {
     }
     Session session = sessionRes.value;
 
+    std::vector<LostPing> pings;
     QSqlQuery pingQ(this->db);
     pingQ.prepare(R"sql(
 SELECT ping_id, session_id, user_id, ping_time
@@ -660,10 +661,12 @@ FROM SessionLostPings WHERE session_id = :sid ORDER BY ping_time, ping_id;)sql")
             } else {
                 ping.setAuthorDeleted();
             }
-            session.addLostPing(std::move(ping));
+            pings.push_back(std::move(ping));
         }
     }
+    session.setLostPings(std::move(pings));
 
+    std::vector<SessionQuestion> questions;
     QSqlQuery qQ(this->db);
     qQ.prepare(R"sql(
 SELECT question_id, session_id, user_id, question_time, question_text, edited_time
@@ -706,9 +709,10 @@ FROM Answers WHERE question_id = :qid ORDER BY answer_time, answer_id;)sql");
                     q.upsertAnswer(std::move(a));
                 }
             }
-            session.addQuestion(std::move(q));
+            questions.push_back(std::move(q));
         }
     }
+    session.setQuestions(std::move(questions));
 
     return Result<Session>(std::move(session));
 }

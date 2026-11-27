@@ -51,13 +51,9 @@ ProtocolResponse ServerClient::sendAndWait(const QJsonObject& request) {
   socket_.sendTextMessage(requestJson);
 
   QEventLoop responseLoop;
-  QTimer timeoutTimer;
-  timeoutTimer.setSingleShot(true);
-
-  QStringList pendingIds;
   int64_t requestId = request["id"].toInteger(0);
 
-  auto textReceived = [&response, &responseLoop, &pendingIds,
+  auto textReceived = [&response, &responseLoop,
                        requestId](const QString& message) {
     QJsonDocument doc = QJsonDocument::fromJson(message.toUtf8());
     if (!doc.isObject()) {
@@ -77,9 +73,7 @@ ProtocolResponse ServerClient::sendAndWait(const QJsonObject& request) {
 
   QTimer::singleShot(connectTimeoutMs_, &responseLoop, &QEventLoop::quit);
   QObject::connect(&socket_, &QWebSocket::textMessageReceived,
-                   &responseLoop, &QEventLoop::quit);
-  QObject::connect(&socket_, &QWebSocket::textMessageReceived,
-                   textReceived);
+                   &responseLoop, textReceived);
 
   responseLoop.exec();
 

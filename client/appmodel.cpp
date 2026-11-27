@@ -18,10 +18,9 @@ Result<User> AppModel::registerUser(const std::string& rawName, const std::strin
     if (!store) {
         return Error::StorageError;
     }
-    // The fields are valid, so the store only refuses a name that is taken.
     Result<User> created = store->registerUser(name, password);
     if (!created.isOk()) {
-        return Error::NameTaken;
+        return created.error;
     }
     currentUser = created.value;
     currentSession.reset();
