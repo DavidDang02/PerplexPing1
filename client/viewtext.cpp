@@ -146,7 +146,7 @@ QString getErrorText(Error error) {
     case Error::EmptyQuestion:     return "Type a question before sending.";
     case Error::QuestionTooLong:
       return QString("Questions can be at most %1 characters.").arg(Validation::kMaxQuestionLength);
-    case Error::CourseHasLiveSession: return "A session is already running.";
+    case Error::CourseHasLiveSession: return "A session is still running in this course. End it first.";
     case Error::StorageError:      return "Couldn't save. Please try again.";
     // ---- Protocol ----
     case Error::BadRequest:        return "The app sent something the server didn't understand. Please update the app.";

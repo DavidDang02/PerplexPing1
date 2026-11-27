@@ -44,8 +44,8 @@ public:
                              }
                          });
         socket.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(port)));
-        waitFor([this] { return socket.state() == QAbstractSocket::ConnectedState; });
-        waitFor([this] { return takePush(Reply::kHello).has_value(); });
+        REQUIRE(waitFor([this] { return socket.state() == QAbstractSocket::ConnectedState; }));
+        REQUIRE(waitFor([this] { return takePush(Reply::kHello).has_value(); }));
     }
 
     bool isConnected() const { return socket.state() == QAbstractSocket::ConnectedState; }
@@ -64,9 +64,12 @@ public:
         return found;
     }
 
-    // True if no push of this type arrives in a short while.
+    // True if no push of this type is on its way. The server handles one
+    // message at a time, in order (N2), so once a reply to a request sent
+    // NOW comes back, every push from earlier actions has already arrived:
+    // no guessing with a timer.
     bool getsNo(const QString& type) {
-        waitFor([] { return false; }, 200);
+        REQUIRE(!sendRaw(QStringLiteral(R"({"type":"flush"})")).isEmpty());
         return !takePush(type).has_value();
     }
 
@@ -97,13 +100,16 @@ private:
         return std::nullopt;
     }
 
+    // True once `done` holds; false if it didn't within `ms`.
     template <typename Condition>
-    static void waitFor(Condition done, int ms = 1000) {
+    static bool waitFor(Condition done, int ms = 3000) {
         QElapsedTimer timer;
         timer.start();
-        while (!done() && timer.elapsed() < ms) {
+        bool ok = false;
+        while (!(ok = done()) && timer.elapsed() < ms) {
             QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
         }
+        return ok;
     }
 
     QWebSocket socket;
@@ -423,4 +429,59 @@ TEST_CASE("Server routes: malformed requests get BadRequest, never a crash or si
                                                        {Field::kEmail, QStringLiteral("")}}))) == Error::EmptyEmail);
     // The connection still works afterwards.
     CHECK(room.ana->send(Request::kAddLost, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
+}
+
+TEST_CASE("Server routes: big or odd messages get a reply, and the connection stays") {
+    Room room;
+    // Over 64 KB: BadRequest, not a silently closed connection.
+    const QString big = QStringLiteral(R"({"type":"addQuestion","text":"%1"})").arg(QString(70 * 1024, 'x'));
+    CHECK(errorOf(room.ana->sendRaw(big)) == Error::BadRequest);
+    CHECK(room.ana->isConnected());
+    // Ids must be whole numbers that fit in an int.
+    CHECK(errorOf(room.prof->send(Request::kPublishSession, fields({{Field::kSessionId, 1.5}}))) == Error::BadRequest);
+    CHECK(errorOf(room.ana->send(Request::kAddLost, fields({{Field::kSessionId, 4294967297.0}}))) == Error::BadRequest);
+    // An unknown type is answered with that same type.
+    const QJsonObject unknown = room.ana->sendRaw(QStringLiteral(R"({"type":"fly"})"));
+    CHECK(unknown[Field::kType].toString() == QStringLiteral("fly"));
+    CHECK(errorOf(unknown) == Error::UnknownRequest);
+}
+
+TEST_CASE("Server routes: a course with a live session can't be deleted") {
+    Room room;
+    CHECK(errorOf(room.prof->send(Request::kDeleteCourse, fields({{Field::kCourseId, room.courseId}}))) ==
+          Error::CourseHasLiveSession);
+    REQUIRE(room.prof->send(Request::kEndSession, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
+    const QJsonObject deleted = room.prof->send(Request::kDeleteCourse, fields({{Field::kCourseId, room.courseId}}));
+    REQUIRE(deleted[Field::kOk].toBool());
+    CHECK(deleted[Field::kData].toObject()[Field::kCourseId].toInt() == room.courseId);
+}
+
+TEST_CASE("Live push: students leave the room when the session ends") {
+    Room room;
+    const QJsonObject asked = room.ana->send(Request::kAddQuestion,
+        fields({{Field::kSessionId, room.sessionId}, {Field::kText, QStringLiteral("why?")}}));
+    const int questionId = asked[Field::kData].toObject()[Field::kQuestionId].toInt();
+    REQUIRE(questionId > 0);
+    REQUIRE(room.prof->send(Request::kEndSession, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
+    REQUIRE(room.prof->send(Request::kPublishSession, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
+    REQUIRE(room.prof->send(Request::kAddAnswer,
+        fields({{Field::kQuestionId, questionId}, {Field::kText, QStringLiteral("see slide 4")}}))[Field::kOk].toBool());
+    // Bob went back to the course page at the end: no answer pushes for him.
+    CHECK(room.bob->getsNo(Reply::kAnswerAdded));
+}
+
+TEST_CASE("Live push: making the course anonymous hides names in the room list at once") {
+    Room room;
+    while (room.prof->waitPush(Reply::kParticipants)) {
+    }
+    REQUIRE(room.prof->send(Request::kUpdateCourse,
+        fields({{Field::kCourseId, room.courseId}, {Field::kName, QStringLiteral("CSCI 187")},
+                {Field::kAnonymous, true}, {Field::kQuestionsShared, true}}))[Field::kOk].toBool());
+    const auto pushed = room.prof->waitPush(Reply::kParticipants);
+    REQUIRE(pushed.has_value());
+    const QJsonArray people = (*pushed)[Field::kParticipants].toArray();
+    REQUIRE(people.size() == 2);
+    for (const QJsonValue& person : people) {
+        CHECK(person.toObject()[Field::kName].toString().isEmpty());
+    }
 }

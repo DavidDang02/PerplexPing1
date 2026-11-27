@@ -128,15 +128,15 @@ The app matches a reply to its request by `id` (or by `type` if it sends one req
 | logout | – | – |
 | changePassword, updateEmail, deleteAccount | – / user / – | deleteAccount: `loggedOut` to the user's other apps |
 | listCourses, getCourse | `{courses}` / course + `sessions` (summaries) | – |
-| createCourse, joinCourse, updateCourse, deleteCourse | course / course / course / – | `courseChanged` / `courseDeleted` (course members) |
+| createCourse, joinCourse, updateCourse, deleteCourse | course / course / course / `{courseId}` | `courseChanged` / `courseDeleted` (course members) |
 | startSession | full session | `courseChanged` |
 | joinSession, openSession | full session | `participants` (educator) |
 | closeSession (leave) | – | `participants` |
 | endSession | details | `sessionEnded` (room), `courseChanged` |
 | publishSession | details | `courseChanged` |
-| renameSession, deleteSession | details | `sessionRenamed` / `sessionDeleted` (course) |
-| addLost, deleteLost | ping | `lostAdded` / `lostDeleted`, only to whoever may see it (educator gets every ping) |
-| addQuestion, editQuestion, deleteQuestion | question | `questionAdded` / `questionUpdated` / `questionDeleted`, only to whoever may see it |
+| renameSession, deleteSession | details / `{sessionId, courseId}` | `sessionRenamed` / `sessionDeleted` (course) |
+| addLost, deleteLost | ping / `{pingId}` | `lostAdded` / `lostDeleted`, only to whoever may see it (educator gets every ping) |
+| addQuestion, editQuestion, deleteQuestion | question / question / `{questionId}` | `questionAdded` / `questionUpdated` / `questionDeleted`, only to whoever may see it |
 | addAnswer, editAnswer, deleteAnswer | the whole question with its answers | `answerAdded` / `answerUpdated` / `answerDeleted` (whole question) |
 | attachRecording, removeRecording, checkRecording | details (with recording) | – |
 | linkPanoptoFolder | course | `courseChanged` |
@@ -190,4 +190,4 @@ The controller is done: `client/appcontroller.h` has one **slot** per user actio
 7. Timeline: click a bar or a question to play that moment.
 8. I'm Lost presses never show a name, even in a named course (only counts matter).
 9. A live session can't be deleted (end it first). An old M2 database file is refused, not migrated.
-10. Times in messages are whole seconds. Failed replies keep `type`, `ok`, `error` and `code`.
+10. Times in messages are ms since 1970, always whole seconds. Failed replies keep `type`, `ok`, `error` and `code`.

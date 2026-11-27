@@ -3,6 +3,9 @@
 
 #include "protocol.h"
 
+#include <cmath>
+#include <limits>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 
@@ -526,6 +529,15 @@ Error getError(const QJsonObject& errorMessage) {
     return getErrorFromCode(code.toStdString());
 }
 
+bool isInt(const QJsonValue& value) {
+    if (!value.isDouble()) {
+        return false;
+    }
+    const double number = value.toDouble();
+    return number == std::floor(number) && number >= std::numeric_limits<int>::min() &&
+           number <= std::numeric_limits<int>::max();
+}
+
 bool hasFields(const QJsonObject& message,
                std::initializer_list<std::pair<QString, char>> fields) {
     for (const auto& [key, type] : fields) {
@@ -533,7 +545,7 @@ bool hasFields(const QJsonObject& message,
         QJsonValue val = message[key];
         switch (type) {
             case 's': if (!val.isString()) return false; break;
-            case 'i': if (!val.isDouble()) return false; break;
+            case 'i': if (!isInt(val)) return false; break;
             case 'b': if (!val.isBool()) return false; break;
             case 'o': if (!val.isObject()) return false; break;
         }

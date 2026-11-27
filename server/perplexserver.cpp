@@ -124,7 +124,7 @@ bool hasRequiredFields(const QString& type, const QJsonObject& request) {
     auto isType = [](const QJsonValue& value, char kind) {
         switch (kind) {
         case 's': return value.isString();
-        case 'i': return value.isDouble() && value.toDouble() == double(value.toInteger());
+        case 'i': return Protocol::isInt(value);
         case 'b': return value.isBool();
         default: return false;
         }
@@ -373,6 +373,15 @@ void PerplexServer::registerHandlers() {
                     message[Protocol::Field::kSession] = Protocol::toDetailsJson(details);
                     return message;
                 });
+            // Students can't open a session in review (S12), so they leave
+            // its room: no more pushes about it until it is published.
+            for (ClientState& other : clients_) {
+                if (other.openSessionId == sessionId &&
+                    getViewer(other, res.value.getCourseId()).role != CourseRole::Educator) {
+                    other.openSessionId = 0;
+                    other.openCourseId = 0;
+                }
+            }
             pushCourseChanged(client, res.value.getCourseId());
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
@@ -409,7 +418,7 @@ void PerplexServer::registerHandlers() {
             }
             const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kPingId] = res.value.ping.getId();
+            reply[Protocol::Field::kData] = QJsonObject{{Protocol::Field::kPingId, res.value.ping.getId()}};
             pushToSession(client, res.value.session.getId(), courseId,
                 [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
                     // Only to those who could see the ping before it went.
@@ -481,7 +490,7 @@ void PerplexServer::registerHandlers() {
             }
             const int courseId = res.value.session.getCourseId();
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kQuestionId] = res.value.question.getId();
+            reply[Protocol::Field::kData] = QJsonObject{{Protocol::Field::kQuestionId, res.value.question.getId()}};
             pushToSession(client, res.value.session.getId(), courseId,
                 [change = res.value](const Viewer& viewer) -> std::optional<QJsonObject> {
                     // Only to those who could see the question before it went.
@@ -600,6 +609,11 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             pushCourseChanged(client, res.value.getId());
+            // Anonymous may have just changed: the educator's list of who is
+            // connected must follow it at once (V5).
+            if (res.value.getLiveSessionId() != 0) {
+                pushParticipantsLater(res.value.getLiveSessionId(), res.value.getId());
+            }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
@@ -635,12 +649,18 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kCourseId] = courseId;
+            reply[Protocol::Field::kData] = QJsonObject{{Protocol::Field::kCourseId, courseId}};
             QJsonObject message = Protocol::makeMessage(Protocol::Reply::kCourseDeleted);
             message[Protocol::Field::kCourseId] = courseId;
             const QString text = Protocol::encode(message);
             for (QWebSocket* socket : members) {
                 socket->sendTextMessage(text);
+            }
+            for (ClientState& other : clients_) {
+                if (other.openCourseId == courseId) {
+                    other.openSessionId = 0;  // its sessions are gone too
+                    other.openCourseId = 0;
+                }
             }
         });
 
@@ -714,12 +734,13 @@ void PerplexServer::registerHandlers() {
                 for (ClientState& other : clients_) {
                     if (other.openSessionId == res.value.getId()) {
                         other.openSessionId = 0;  // it is gone
+                        other.openCourseId = 0;
                     }
                 }
             }
             reply[Protocol::Field::kOk] = true;
-            reply[Protocol::Field::kSessionId] = res.value.getId();
-            reply[Protocol::Field::kCourseId] = res.value.getCourseId();
+            reply[Protocol::Field::kData] = QJsonObject{{Protocol::Field::kSessionId, res.value.getId()},
+                                                        {Protocol::Field::kCourseId, res.value.getCourseId()}};
         });
 
     // ---- Answers: edit and delete (A3, A7, A8) ----
@@ -848,8 +869,10 @@ void PerplexServer::registerHandlers() {
 
 void PerplexServer::onNewConnection() {
     QWebSocket* client = server_->nextPendingConnection();
-    // Qt drops (and closes on) anything bigger than this before we parse it.
-    client->setMaxAllowedIncomingMessageSize(Protocol::kMaxMessageBytes);
+    // Qt closes the connection on anything bigger than this without telling
+    // anyone, so its limit is set well above ours: a message between the two
+    // gets a BadRequest reply below (N1, N2) instead of a dropped connection.
+    client->setMaxAllowedIncomingMessageSize(16 * Protocol::kMaxMessageBytes);
     connect(client, &QWebSocket::textMessageReceived, this,
             &PerplexServer::onTextMessageReceived);
     connect(client, &QWebSocket::disconnected, this,
@@ -894,7 +917,9 @@ void PerplexServer::onTextMessageReceived(const QString& message) {
         if (obj.contains(QStringLiteral("id"))) {
             resp[QStringLiteral("id")] = obj[QStringLiteral("id")];
         }
-        resp[Protocol::Field::kType] = Protocol::Reply::kError;
+        // A reply's type is the request's type (CONTRACT.md 6), so the app
+        // can match it even without an id.
+        resp[Protocol::Field::kType] = type;
         resp[Protocol::Field::kRequest] = type;
         resp[Protocol::Field::kCode] = QStringLiteral("UnknownRequest");
         resp[QStringLiteral("error")] = QStringLiteral("UnknownRequest");

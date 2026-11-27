@@ -331,6 +331,11 @@ Error AppModel::deleteCourse(int courseId) {
     if (!Permissions::canManageCourse(Viewer{currentUser->getId(), cRes.value.getRole()})) {
         return Error::NotCourseEducator;
     }
+    // Like S9 for one session: end the live one first, so nobody's room
+    // disappears mid-lecture.
+    if (cRes.value.getLiveSessionId() != 0) {
+        return Error::CourseHasLiveSession;
+    }
 
     if (!db->deleteCourse(courseId).isOk()) {
         return Error::StorageError;

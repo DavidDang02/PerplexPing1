@@ -278,6 +278,9 @@ QJsonObject makeError(const QString& requestType, Error error);
 // The Error inside an "error" message.
 Error getError(const QJsonObject& errorMessage);
 
+// A whole number that fits in an int (not 1.5, not 4294967297).
+bool isInt(const QJsonValue& value);
+
 // True if every listed key is present in `message` with the JSON type
 // given: 's' string, 'i' whole number, 'b' bool, 'o' object.
 //   hasFields(m, {{Field::kSessionId, 'i'}, {Field::kText, 's'}})
