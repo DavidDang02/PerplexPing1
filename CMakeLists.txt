@@ -10,7 +10,7 @@ set(CMAKE_AUTORCC ON)
 
 # Qt6::Sql gives you QSqlDatabase/QSqlQuery, backed by SQLite.
 # Qt6::WebSockets gives QWebSocket/QWebSocketServer for the client/server mode.
-find_package(Qt6 COMPONENTS Widgets Sql WebSockets REQUIRED)
+find_package(Qt6 COMPONENTS Widgets Sql WebSockets Network REQUIRED)
 
 # ---- Build control options (pass -D<OPTION>=ON|OFF to cmake) ----
 option(BUILD_CLIENT "Build the client (app) executable" ON)
@@ -50,6 +50,7 @@ set(APP_SOURCES_NO_MAIN
     client/serverclient.cpp
     client/appcontroller.cpp
     client/panoptoclient.h
+    client/panoptooauthclient.cpp
     client/viewtext.cpp
     client/loginpage.cpp
     client/loginpage.ui
@@ -59,7 +60,7 @@ set(APP_SOURCES_NO_MAIN
 # ---- GUI client ----
 if(BUILD_CLIENT)
     add_executable(app client/main.cpp ${APP_SOURCES_NO_MAIN})
-    target_link_libraries(app PRIVATE Qt6::Widgets Qt6::WebSockets)
+    target_link_libraries(app PRIVATE Qt6::Widgets Qt6::WebSockets Qt6::Network)
     target_include_directories(app PRIVATE client server)
 endif()
 
@@ -90,6 +91,7 @@ if(BUILD_TESTS)
         tests/test_main.cpp
         tests/test_viewtext.cpp
         tests/test_e2e.cpp
+        tests/test_panopto.cpp
         ${APP_SOURCES_NO_MAIN}
         server/database.cpp
         server/appmodel.cpp
@@ -97,7 +99,7 @@ if(BUILD_TESTS)
         server/permissions.cpp
         server/perplexserver.cpp
     )
-    target_link_libraries(app_tests PRIVATE Qt6::Widgets Qt6::Sql Qt6::WebSockets)
+    target_link_libraries(app_tests PRIVATE Qt6::Widgets Qt6::Sql Qt6::WebSockets Qt6::Network)
     target_include_directories(app_tests PRIVATE client server tests)
 
     add_executable(server_tests

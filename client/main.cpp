@@ -6,6 +6,8 @@
 //   ./app --host 10.0.0.5      another computer running perplexing_server
 //   ./app --port 9000
 
+#include <memory>
+
 #include <QApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -14,6 +16,7 @@
 
 #include "appcontroller.h"
 #include "mainwindow.h"
+#include "panoptooauthclient.h"
 #include "protocol.h"
 #include "serverclient.h"
 
@@ -49,7 +52,15 @@ int main(int argc, char* argv[]) {
     // The app keeps running if the server isn't up yet: it shows
     // "Can't reach the server" and connects as soon as it can.
     ServerClient client(url);
-    AppController controller(&client, nullptr);
+    // Panopto is optional: without PANOPTO_HOST and PANOPTO_CLIENT_ID (in
+    // the environment or .env) the app runs and "Find recording" says
+    // Panopto isn't set up; pasting a link still works.
+    const PanoptoOAuthClient::Settings panoptoSettings = PanoptoOAuthClient::loadSettings();
+    std::unique_ptr<PanoptoOAuthClient> panopto;
+    if (panoptoSettings.isComplete()) {
+        panopto = std::make_unique<PanoptoOAuthClient>(panoptoSettings);
+    }
+    AppController controller(&client, panopto.get());
     MainWindow window(&controller);
     window.show();
     client.start();
