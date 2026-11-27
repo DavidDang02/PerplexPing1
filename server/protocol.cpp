@@ -55,6 +55,9 @@ QJsonObject toJson(const Course& course) {
     if (course.getLiveSessionId() != 0) {
         obj[Field::kLiveSessionId] = course.getLiveSessionId();
     }
+    if (course.hasPanoptoFolder()) {
+        obj[Field::kPanoptoFolderId] = QString::fromStdString(course.getPanoptoFolderId());
+    }
     QJsonArray students;
     for (int id : course.getStudentIds()) {
         students.append(id);
@@ -392,6 +395,7 @@ Course courseFromJson(const QJsonObject& json) {
     course.setEducatorId(json[Field::kEducatorId].toInt(0));
     course.setRole(roleFromText(json[Field::kRole].toString()));
     course.setLiveSessionId(json[Field::kLiveSessionId].toInt(0));
+    course.setPanoptoFolderId(json[Field::kPanoptoFolderId].toString().toStdString());
     course.setStudentIds(intsFromJson(json[Field::kStudentIds].toArray()));
     course.setSessionIds(intsFromJson(json[Field::kSessionIds].toArray()));
     return course;

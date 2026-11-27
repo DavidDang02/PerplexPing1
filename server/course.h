@@ -71,6 +71,13 @@ public:
     int getLiveSessionId() const;
     void setLiveSessionId(int sessionId);
 
+    // The Panopto folder that holds this course's lecture recordings (its
+    // id, a GUID), so "Find recording" knows where to look (R6). Empty until
+    // the educator links one.
+    const std::string& getPanoptoFolderId() const;
+    void setPanoptoFolderId(const std::string& folderId);
+    bool hasPanoptoFolder() const;
+
 private:
     int id = 0;
     std::string name;
@@ -82,6 +89,7 @@ private:
     std::vector<int> sessionIds;
     CourseRole role = CourseRole::None;
     int liveSessionId = 0;
+    std::string panoptoFolderId;
 };
 
 // A course page: the course and one line per session, newest first.

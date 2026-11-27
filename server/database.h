@@ -143,6 +143,9 @@ public:
                              bool questionsShared);
     // [S] Deletes the course with its members, sessions, inputs and answers.
     Result<bool> deleteCourse(int courseId);
+    // [F5] R6. Saves the course's Panopto folder id; "" unlinks it. False
+    // if there is no such course.
+    Result<bool> setPanoptoFolder(int courseId, const std::string& folderId);
 
     // Adds a student (a CourseMembers row). False if they already are one.
     Result<bool> addStudent(int courseId, int userId, Clock::time_point joinedTime);
@@ -234,6 +237,8 @@ private:
     // otherwise PRAGMA user_version.
     int detectVersion();
     bool tableExists(const QString& name);
+    // Adds columns newer than a file's tables (Courses.panopto_folder_id).
+    bool addMissingColumns();
 
     // Converts between a time and the UTC text stored in the tables.
     static std::string convertTimeToString(Clock::time_point time);

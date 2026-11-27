@@ -69,6 +69,7 @@ inline const QString kJoinCourse = QStringLiteral("joinCourse");
 inline const QString kGetCourse = QStringLiteral("getCourse");
 inline const QString kUpdateCourse = QStringLiteral("updateCourse");
 inline const QString kDeleteCourse = QStringLiteral("deleteCourse");    // stretch
+inline const QString kLinkPanoptoFolder = QStringLiteral("linkPanoptoFolder");  // R6
 
 inline const QString kStartSession = QStringLiteral("startSession");
 inline const QString kJoinSession = QStringLiteral("joinSession");
@@ -163,6 +164,8 @@ inline const QString kEducatorId = QStringLiteral("educatorId");
 inline const QString kStudentIds = QStringLiteral("studentIds");
 inline const QString kSessionIds = QStringLiteral("sessionIds");
 inline const QString kLiveSessionId = QStringLiteral("liveSessionId");
+inline const QString kPanoptoFolderId = QStringLiteral("panoptoFolderId");  // in a course, educator only
+inline const QString kFolderId = QStringLiteral("folderId");                // in "linkPanoptoFolder"
 
 inline const QString kSession = QStringLiteral("session");
 inline const QString kSessions = QStringLiteral("sessions");

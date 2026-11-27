@@ -46,6 +46,7 @@ set(SERVER_MODEL_SOURCES
     server/validation.cpp
     server/user.cpp
     server/protocol.cpp
+    server/filters.cpp
 )
 
 # ---- GUI client ----
@@ -102,6 +103,7 @@ if(BUILD_TESTS)
         tests/test_protocol.cpp
         tests/test_model_rules.cpp
         tests/test_classes.cpp
+        tests/test_filters.cpp
         tests/test_validation.cpp
         ${SERVER_MODEL_SOURCES}
         server/perplexserver.cpp

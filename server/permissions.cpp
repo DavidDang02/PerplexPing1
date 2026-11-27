@@ -84,6 +84,7 @@ bool Permissions::canManageRecording(const Viewer& viewer, const Session& sessio
 void Visibility::redactCourse(Course& course, const Viewer& viewer) {
     if (viewer.role != CourseRole::Educator) {
         course.setJoinCode("");
+        course.setPanoptoFolderId("");  // only "Find recording" (educator) needs it
     }
 }
 

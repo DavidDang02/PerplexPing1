@@ -165,6 +165,7 @@ bool hasRequiredFields(const QString& type, const QJsonObject& request) {
         {Request::kCreateCourse, {{Field::kName, 's'}}},
         {Request::kJoinCourse, {{Field::kJoinCode, 's'}}},
         {Request::kGetCourse, {{Field::kCourseId, 'i'}}},
+        {Request::kLinkPanoptoFolder, {{Field::kCourseId, 'i'}, {Field::kFolderId, 's'}}},
         {Request::kStartSession, {{Field::kCourseId, 'i'}, {Field::kName, 's'}}},
         {Request::kJoinSession, {{Field::kJoinCode, 's'}}},
         {Request::kOpenSession, {{Field::kSessionId, 'i'}}},
@@ -808,6 +809,22 @@ void PerplexServer::registerHandlers() {
                 request[Protocol::Field::kName].toString().toStdString(),
                 request[Protocol::Field::kAnonymous].toBool(),
                 request[Protocol::Field::kQuestionsShared].toBool());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            pushCourseChanged(client, res.value.getId());
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    // The educator links the course's Panopto folder once, so later
+    // "Find recording" presses know where to look.
+    handlers_.insert(Protocol::Request::kLinkPanoptoFolder,
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            Result<Course> res = state.model->linkPanoptoFolder(
+                request[Protocol::Field::kCourseId].toInt(),
+                request[Protocol::Field::kFolderId].toString().toStdString());
             if (!res.isOk()) {
                 setFailure(reply, res.error);
                 return;

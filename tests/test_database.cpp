@@ -351,4 +351,41 @@ TEST_CASE("A new file is created at v2 and opens again") {
     REQUIRE(again.open().isOk());
     CHECK(again.findUserByName("ana").isOk());
 }
+
+TEST_CASE("A v2 file from before the Panopto folder column gets it added, rows kept") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("older.db");
+    int courseId = 0;
+    {
+        Database db(path);
+        REQUIRE(db.open().isOk());
+        const auto prof = db.createUser("prof", "prof@scu.edu", "h", "s", 1, system_clock::now());
+        REQUIRE(prof.isOk());
+        const auto course = db.createCourse("CSCI 187", "K7M2QX", false, true, prof.value.getId(), system_clock::now());
+        REQUIRE(course.isOk());
+        courseId = course.value.getId();
+    }
+    {
+        // Make it look like a file from Nov 26: no panopto_folder_id column.
+        QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "older-file");
+        raw.setDatabaseName(path);
+        REQUIRE(raw.open());
+        QSqlQuery q(raw);
+        REQUIRE(q.exec("ALTER TABLE Courses DROP COLUMN panopto_folder_id;"));
+        raw.close();
+    }
+    QSqlDatabase::removeDatabase("older-file");
+
+    Database db(path);
+    REQUIRE(db.open().isOk());
+    const auto loaded = db.getCourse(courseId, 0);
+    REQUIRE(loaded.isOk());
+    CHECK(loaded.value.getName() == "CSCI 187");
+    CHECK_FALSE(loaded.value.hasPanoptoFolder());
+    REQUIRE(db.setPanoptoFolder(courseId, "1b2c3d4e-0000-4a5b-8c9d-0123456789ab").value);
+    CHECK(db.getCourse(courseId, 0).value.getPanoptoFolderId() == "1b2c3d4e-0000-4a5b-8c9d-0123456789ab");
+    REQUIRE(db.setPanoptoFolder(courseId, "").isOk());
+    CHECK_FALSE(db.getCourse(courseId, 0).value.hasPanoptoFolder());
+}
 }

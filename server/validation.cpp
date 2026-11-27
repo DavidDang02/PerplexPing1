@@ -150,3 +150,19 @@ Error Validation::checkRecordingOffset(long long offsetSeconds) {
     }
     return Error::None;
 }
+
+Error Validation::checkPanoptoFolderId(const std::string& folderId) {
+    if (folderId.empty()) {
+        return Error::None;  // unlink
+    }
+    if (folderId.size() > 64) {
+        return Error::PanoptoFolderInvalid;
+    }
+    for (const char c : folderId) {
+        const bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        if (!hex && c != '-') {
+            return Error::PanoptoFolderInvalid;
+        }
+    }
+    return Error::None;
+}

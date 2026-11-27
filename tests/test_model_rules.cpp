@@ -170,3 +170,19 @@ TEST_CASE("A7: the educator can remove a student's answer; classmates cannot") {
     CHECK(removed.value.byModerator);
     CHECK(removed.value.question.getAnswers().empty());
 }
+
+TEST_CASE("R6: only the educator links a Panopto folder, and only a real folder id") {
+    Class c;
+    const std::string folder = "1b2c3d4e-0000-4a5b-8c9d-0123456789ab";
+    CHECK(c.ana.linkPanoptoFolder(c.courseId, folder).error == Error::NotCourseEducator);
+    CHECK(c.prof.linkPanoptoFolder(c.courseId, "https://evil.example/").error == Error::PanoptoFolderInvalid);
+    const auto linked = c.prof.linkPanoptoFolder(c.courseId, "  " + folder + " ");
+    REQUIRE(linked.isOk());
+    CHECK(linked.value.getPanoptoFolderId() == folder);
+    // Students don't get the folder id (or the join code).
+    const auto asStudent = c.ana.getCourse(c.courseId);
+    REQUIRE(asStudent.isOk());
+    CHECK_FALSE(asStudent.value.course.hasPanoptoFolder());
+    // Unlink.
+    CHECK_FALSE(c.prof.linkPanoptoFolder(c.courseId, "").value.hasPanoptoFolder());
+}

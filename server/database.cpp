@@ -71,7 +71,13 @@ Result<bool> Database::open() {
         QSqlDatabase::removeDatabase(this->connectionName);
         return Result<bool>(Error::StorageError);
     } else {
-        // Already v2: nothing to do
+        // Already v2. Files made before Nov 27 lack Courses.panopto_folder_id
+        // (added for "Find recording"); add it, keeping every row.
+        if (!this->addMissingColumns()) {
+            this->db.close();
+            QSqlDatabase::removeDatabase(this->connectionName);
+            return Result<bool>(Error::StorageError);
+        }
     }
 
     this->schemaVersion = this->detectVersion();
@@ -313,7 +319,7 @@ Result<Course> Database::getCourse(int courseId, int userId) {
     QSqlQuery query(this->db);
     query.prepare(R"sql(
 SELECT course_id, course_name, course_join_code, is_anonymous,
-       questions_shared, educator_id, created_time
+       questions_shared, educator_id, created_time, panopto_folder_id
 FROM Courses WHERE course_id = :id;)sql");
     query.bindValue(":id", courseId);
     if (!query.exec() || !query.next()) {
@@ -327,6 +333,7 @@ FROM Courses WHERE course_id = :id;)sql");
     course.setAnonymous(query.value(3).toInt());
     course.setQuestionsShared(query.value(4).toInt());
     course.setEducatorId(query.value(5).toInt());
+        course.setPanoptoFolderId(query.value(7).toString().toStdString());
 
     if (course.getEducatorId() == userId) {
         course.setRole(CourseRole::Educator);
@@ -381,7 +388,7 @@ Result<Course> Database::findCourseByJoinCode(const std::string& joinCode, int u
     QSqlQuery query(this->db);
     query.prepare(R"sql(
 SELECT course_id, course_name, course_join_code, is_anonymous,
-       questions_shared, educator_id, created_time
+       questions_shared, educator_id, created_time, panopto_folder_id
 FROM Courses WHERE course_join_code = :code;)sql");
     query.bindValue(":code", QString::fromStdString(joinCode));
     if (!query.exec() || !query.next()) {
@@ -395,6 +402,7 @@ FROM Courses WHERE course_join_code = :code;)sql");
     course.setAnonymous(query.value(3).toInt());
     course.setQuestionsShared(query.value(4).toInt());
     course.setEducatorId(query.value(5).toInt());
+        course.setPanoptoFolderId(query.value(7).toString().toStdString());
 
     if (course.getEducatorId() == userId) {
         course.setRole(CourseRole::Educator);
@@ -431,13 +439,13 @@ Result<std::vector<Course>> Database::listCoursesForUser(int userId) {
     QSqlQuery query(this->db);
     query.prepare(R"sql(
 SELECT c.course_id, c.course_name, c.course_join_code, c.is_anonymous,
-       c.questions_shared, c.educator_id, c.created_time
+       c.questions_shared, c.educator_id, c.created_time, c.panopto_folder_id
 FROM Courses c
 JOIN CourseMembers cm ON c.course_id = cm.course_id
 WHERE cm.user_id = :uid
 UNION
 SELECT c.course_id, c.course_name, c.course_join_code, c.is_anonymous,
-       c.questions_shared, c.educator_id, c.created_time
+       c.questions_shared, c.educator_id, c.created_time, c.panopto_folder_id
 FROM Courses c
 WHERE c.educator_id = :uid
 ORDER BY c.course_name COLLATE NOCASE;)sql");
@@ -454,6 +462,7 @@ ORDER BY c.course_name COLLATE NOCASE;)sql");
         course.setAnonymous(query.value(3).toInt());
         course.setQuestionsShared(query.value(4).toInt());
         course.setEducatorId(query.value(5).toInt());
+        course.setPanoptoFolderId(query.value(7).toString().toStdString());
 
         if (course.getEducatorId() == userId) {
             course.setRole(CourseRole::Educator);
@@ -497,6 +506,37 @@ ORDER BY c.course_name COLLATE NOCASE;)sql");
     }
 
     return Result<std::vector<Course>>(std::move(courses));
+}
+
+bool Database::addMissingColumns() {
+    QSqlQuery info(this->db);
+    if (!info.exec("PRAGMA table_info(Courses);")) {
+        return false;
+    }
+    while (info.next()) {
+        if (info.value(1).toString() == "panopto_folder_id") {
+            return true;
+        }
+    }
+    QSqlQuery alter(this->db);
+    if (!alter.exec("ALTER TABLE Courses ADD COLUMN panopto_folder_id TEXT;")) {
+        std::cerr << "Database::open: could not add Courses.panopto_folder_id: "
+                  << alter.lastError().text().toStdString() << std::endl;
+        return false;
+    }
+    return true;
+}
+
+Result<bool> Database::setPanoptoFolder(int courseId, const std::string& folderId) {
+    QSqlQuery query(this->db);
+    query.prepare("UPDATE Courses SET panopto_folder_id = :folder WHERE course_id = :id;");
+    // Empty unlinks it (NULL).
+    query.bindValue(":folder", folderId.empty() ? QVariant() : QVariant(QString::fromStdString(folderId)));
+    query.bindValue(":id", courseId);
+    if (!query.exec()) {
+        return Result<bool>(Error::StorageError);
+    }
+    return Result<bool>(query.numRowsAffected() > 0);
 }
 
 Result<bool> Database::updateCourse(int courseId, const std::string& name, bool anonymous,
@@ -1166,7 +1206,8 @@ CREATE TABLE IF NOT EXISTS Courses (
     is_anonymous      INTEGER NOT NULL DEFAULT 0 CHECK (is_anonymous IN (0, 1)),
     questions_shared  INTEGER NOT NULL DEFAULT 1 CHECK (questions_shared IN (0, 1)),
     educator_id       INTEGER REFERENCES Users (user_id) ON DELETE SET NULL,
-    created_time      TEXT    NOT NULL
+    created_time      TEXT    NOT NULL,
+    panopto_folder_id TEXT    CHECK (panopto_folder_id IS NULL OR length(panopto_folder_id) <= 64)
 );)sql");
     if (!status) {
         std::cerr << "Database::createTables: Courses table failed: "

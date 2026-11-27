@@ -148,6 +148,12 @@ public:
     // [S] C9. Educator only. Deletes the course with everything in it.
     Error deleteCourse(int courseId);
 
+    // [F5] R6. Educator only. Remembers which Panopto folder holds this
+    // course's recordings, for "Find recording". The app works the id out
+    // from a lecture link the educator pastes; "" unlinks it.
+    // PanoptoFolderInvalid if it isn't a folder id.
+    Result<Course> linkPanoptoFolder(int courseId, const std::string& folderId);
+
     // The logged-in user's role in a course, worked out every time from
     // Courses.educator_id and CourseMembers, never saved: Educator if they
     // created it, Student if they joined it, None if logged out or neither.

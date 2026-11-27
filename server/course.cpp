@@ -90,3 +90,14 @@ int Course::getLiveSessionId() const {
 void Course::setLiveSessionId(int sessionId) {
     this->liveSessionId = sessionId;
 }
+const std::string& Course::getPanoptoFolderId() const {
+    return panoptoFolderId;
+}
+
+void Course::setPanoptoFolderId(const std::string& folderId) {
+    panoptoFolderId = folderId;
+}
+
+bool Course::hasPanoptoFolder() const {
+    return !panoptoFolderId.empty();
+}

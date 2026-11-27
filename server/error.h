@@ -26,6 +26,7 @@ enum class Error {
     UnknownRequest,  // "type" is not in the catalogue
     NotLoggedIn,     // U9
     StorageError,    // the database refused; should never happen
+    ServerUnreachable,  // app only: no connection to the server, or it didn't answer in time
 
     // ---- Accounts (U rules) ----
     EmptyName,
@@ -80,6 +81,13 @@ enum class Error {
     RecordingUrlInvalid,
     RecordingOffsetInvalid,
     RecordingNotReady,  // R6: no Panopto recording overlaps the session (yet)
+    PanoptoFolderInvalid,  // R6: not a Panopto folder id
+    // App only (the Panopto side of "Find recording" runs in the app):
+    PanoptoNotConfigured,  // this copy of the app has no Panopto client id
+    PanoptoSignInFailed,   // the SCU sign-in was cancelled or failed
+    PanoptoLinkInvalid,    // the pasted text is not a Panopto lecture link
+    PanoptoUnreachable,    // Panopto didn't answer
+    PanoptoFolderNotLinked,  // "Find recording" before the course's folder was linked
 };
 
 // The stable text sent over the network: exactly the enumerator's name,

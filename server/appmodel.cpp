@@ -330,6 +330,33 @@ Error AppModel::deleteCourse(int courseId) {
     return Error::None;
 }
 
+Result<Course> AppModel::linkPanoptoFolder(int courseId, const std::string& folderId) {
+    if (!currentUser) {
+        return Error::NotLoggedIn;
+    }
+    if (!db) {
+        return Error::StorageError;
+    }
+
+    Result<Course> cRes = db->getCourse(courseId, currentUser->getId());
+    if (!cRes.isOk() || cRes.value.getRole() == CourseRole::None) {
+        return Error::NoSuchCourse;
+    }
+    if (!Permissions::canManageCourse(Viewer{currentUser->getId(), cRes.value.getRole()})) {
+        return Error::NotCourseEducator;
+    }
+
+    const std::string trimmed = Validation::trim(folderId);
+    if (const Error err = Validation::checkPanoptoFolderId(trimmed); err != Error::None) {
+        return err;
+    }
+
+    if (!db->setPanoptoFolder(courseId, trimmed).isOk()) {
+        return Error::StorageError;
+    }
+    return db->getCourse(courseId, currentUser->getId());
+}
+
 CourseRole AppModel::getRole(int courseId) const {
     if (!currentUser || !db) {
         return CourseRole::None;
