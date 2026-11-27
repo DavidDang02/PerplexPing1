@@ -40,16 +40,16 @@ Result<bool> Database::open() {
     int version = this->detectVersion();
 
     if (version == 0) {
-        // Empty/new file: create v2 tables
-        if (!this->createTables()) {
-            std::cerr << "Database::open: failed to create v2 tables" << std::endl;
-            this->db.close();
-            QSqlDatabase::removeDatabase(this->connectionName);
-            return Result<bool>(Error::StorageError);
-        }
+        // Empty/new file: create the v2 tables and stamp the version in one
+        // transaction, so a failure never leaves a half-built file.
         QSqlQuery vq(this->db);
-        if (!vq.exec("PRAGMA user_version = 2;")) {
-            std::cerr << "Database::open: failed to set user_version" << std::endl;
+        if (!this->db.transaction() || !this->createTables() ||
+            !vq.exec("PRAGMA user_version = 2;") || !this->db.commit()) {
+            std::cerr << "Database::open: failed to create v2 tables: "
+                      << this->db.lastError().text().toStdString() << std::endl;
+            this->db.rollback();
+            this->db.close();
+            return Result<bool>(Error::StorageError);
         }
         this->schemaVersion = 2;
     } else if (version == 1) {
@@ -60,22 +60,25 @@ Result<bool> Database::open() {
                       << " is an old M2 PerplexPing database. Delete or rename it "
                          "and start the server again." << std::endl;
             this->db.close();
-            QSqlDatabase::removeDatabase(this->connectionName);
             return Result<bool>(Error::StorageError);
         }
+    } else if (version < 0) {
+        // user_version 0 but tables that are not ours: not a PerplexPing file.
+        std::cerr << "Database::open: " << this->path.toStdString()
+                  << " is not a PerplexPing database." << std::endl;
+        this->db.close();
+        return Result<bool>(Error::StorageError);
     } else if (version > 2) {
         // Newer version than we support: refuse
         std::cerr << "Database::open: database version " << version
                   << " is newer than supported version 2" << std::endl;
         this->db.close();
-        QSqlDatabase::removeDatabase(this->connectionName);
         return Result<bool>(Error::StorageError);
     } else {
         // Already v2. Files made before Nov 27 lack Courses.panopto_folder_id
         // (added for "Find recording"); add it, keeping every row.
         if (!this->addMissingColumns()) {
             this->db.close();
-            QSqlDatabase::removeDatabase(this->connectionName);
             return Result<bool>(Error::StorageError);
         }
     }
@@ -257,8 +260,11 @@ Result<bool> Database::deleteUser(int userId) {
     QSqlQuery check(this->db);
     check.prepare("SELECT 1 FROM Users WHERE user_id = :id;");
     check.bindValue(":id", userId);
-    if (!check.exec() || !check.next()) {
-        return Result<bool>(Error::UnknownRequest);
+    if (!check.exec()) {
+        return Result<bool>(Error::StorageError);
+    }
+    if (!check.next()) {
+        return Result<bool>(false);  // no such row (header)
     }
 
     QSqlQuery query(this->db);
@@ -335,7 +341,7 @@ FROM Courses WHERE course_id = :id;)sql");
     course.setEducatorId(query.value(5).toInt());
         course.setPanoptoFolderId(query.value(7).toString().toStdString());
 
-    if (course.getEducatorId() == userId) {
+    if (course.getEducatorId() != 0 && course.getEducatorId() == userId) {
         course.setRole(CourseRole::Educator);
     } else {
         QSqlQuery mem(this->db);
@@ -404,7 +410,7 @@ FROM Courses WHERE course_join_code = :code;)sql");
     course.setEducatorId(query.value(5).toInt());
         course.setPanoptoFolderId(query.value(7).toString().toStdString());
 
-    if (course.getEducatorId() == userId) {
+    if (course.getEducatorId() != 0 && course.getEducatorId() == userId) {
         course.setRole(CourseRole::Educator);
     } else {
         QSqlQuery mem(this->db);
@@ -464,7 +470,7 @@ ORDER BY c.course_name COLLATE NOCASE;)sql");
         course.setEducatorId(query.value(5).toInt());
         course.setPanoptoFolderId(query.value(7).toString().toStdString());
 
-        if (course.getEducatorId() == userId) {
+        if (course.getEducatorId() != 0 && course.getEducatorId() == userId) {
             course.setRole(CourseRole::Educator);
         } else {
             course.setRole(CourseRole::Student);
@@ -519,7 +525,8 @@ bool Database::addMissingColumns() {
         }
     }
     QSqlQuery alter(this->db);
-    if (!alter.exec("ALTER TABLE Courses ADD COLUMN panopto_folder_id TEXT;")) {
+    if (!alter.exec("ALTER TABLE Courses ADD COLUMN panopto_folder_id TEXT "
+                    "CHECK (panopto_folder_id IS NULL OR length(panopto_folder_id) <= 64);")) {
         std::cerr << "Database::open: could not add Courses.panopto_folder_id: "
                   << alter.lastError().text().toStdString() << std::endl;
         return false;
@@ -557,8 +564,11 @@ Result<bool> Database::deleteCourse(int courseId) {
     QSqlQuery check(this->db);
     check.prepare("SELECT 1 FROM Courses WHERE course_id = :id;");
     check.bindValue(":id", courseId);
-    if (!check.exec() || !check.next()) {
-        return Result<bool>(Error::UnknownRequest);
+    if (!check.exec()) {
+        return Result<bool>(Error::StorageError);
+    }
+    if (!check.next()) {
+        return Result<bool>(false);  // no such row (header)
     }
 
     QSqlQuery query(this->db);
@@ -599,8 +609,8 @@ CourseRole Database::getRole(int courseId, int userId) {
     if (!query.exec() || !query.next()) {
         return CourseRole::None;
     }
-    int educatorId = query.value(0).toInt();
-    if (educatorId == userId) {
+    // NULL (the educator deleted their account) is nobody, not user 0.
+    if (!query.value(0).isNull() && query.value(0).toInt() == userId) {
         return CourseRole::Educator;
     }
     query.prepare("SELECT 1 FROM CourseMembers WHERE course_id = :cid AND user_id = :uid;");
@@ -1227,7 +1237,9 @@ CREATE TABLE IF NOT EXISTS CourseMembers (
                   << query.lastError().text().toStdString() << std::endl;
         return false;
     }
-    query.exec("CREATE INDEX IF NOT EXISTS idx_members_user ON CourseMembers (user_id);");
+    if (!query.exec("CREATE INDEX IF NOT EXISTS idx_members_user ON CourseMembers (user_id);")) {
+        return false;
+    }
 
     status = query.exec(R"sql(
 CREATE TABLE IF NOT EXISTS Sessions (
@@ -1254,9 +1266,15 @@ CREATE TABLE IF NOT EXISTS Sessions (
                   << query.lastError().text().toStdString() << std::endl;
         return false;
     }
-    query.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_live_code ON Sessions (join_code) WHERE end_date IS NULL;");
-    query.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_one_live ON Sessions (course_id) WHERE end_date IS NULL;");
-    query.exec("CREATE INDEX IF NOT EXISTS idx_sessions_course ON Sessions (course_id, start_date);");
+    if (!query.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_live_code ON Sessions (join_code) WHERE end_date IS NULL;")) {
+        return false;
+    }
+    if (!query.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_one_live ON Sessions (course_id) WHERE end_date IS NULL;")) {
+        return false;
+    }
+    if (!query.exec("CREATE INDEX IF NOT EXISTS idx_sessions_course ON Sessions (course_id, start_date);")) {
+        return false;
+    }
 
     status = query.exec(R"sql(
 CREATE TABLE IF NOT EXISTS SessionLostPings (
@@ -1270,7 +1288,9 @@ CREATE TABLE IF NOT EXISTS SessionLostPings (
                   << query.lastError().text().toStdString() << std::endl;
         return false;
     }
-    query.exec("CREATE INDEX IF NOT EXISTS idx_pings_session ON SessionLostPings (session_id, ping_time, ping_id);");
+    if (!query.exec("CREATE INDEX IF NOT EXISTS idx_pings_session ON SessionLostPings (session_id, ping_time, ping_id);")) {
+        return false;
+    }
 
     status = query.exec(R"sql(
 CREATE TABLE IF NOT EXISTS SessionQuestions (
@@ -1286,7 +1306,9 @@ CREATE TABLE IF NOT EXISTS SessionQuestions (
                   << query.lastError().text().toStdString() << std::endl;
         return false;
     }
-    query.exec("CREATE INDEX IF NOT EXISTS idx_questions_session ON SessionQuestions (session_id, question_time, question_id);");
+    if (!query.exec("CREATE INDEX IF NOT EXISTS idx_questions_session ON SessionQuestions (session_id, question_time, question_id);")) {
+        return false;
+    }
 
     status = query.exec(R"sql(
 CREATE TABLE IF NOT EXISTS Answers (
@@ -1302,7 +1324,9 @@ CREATE TABLE IF NOT EXISTS Answers (
                   << query.lastError().text().toStdString() << std::endl;
         return false;
     }
-    query.exec("CREATE INDEX IF NOT EXISTS idx_answers_question ON Answers (question_id, answer_time, answer_id);");
+    if (!query.exec("CREATE INDEX IF NOT EXISTS idx_answers_question ON Answers (question_id, answer_time, answer_id);")) {
+        return false;
+    }
 
     QSqlQuery vq(this->db);
     return vq.exec("PRAGMA user_version = 2;");
@@ -1321,8 +1345,16 @@ int Database::detectVersion() {
     if (query.exec("PRAGMA user_version;") && query.next()) {
         version = query.value(0).toInt();
     }
-    if (version != 0 || !tableExists("Users")) {
+    if (version != 0) {
         return version;
+    }
+    QSqlQuery tables(this->db);
+    if (!tables.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';") ||
+        !tables.next()) {
+        return 0;  // empty file
+    }
+    if (!tableExists("Users")) {
+        return -1;  // someone else's tables
     }
     // user_version 0 but tables exist: the M2 app made it if Users has the
     // old plain-text user_password column (header).
@@ -1334,7 +1366,7 @@ int Database::detectVersion() {
             }
         }
     }
-    return 0;
+    return -1;  // tables, but neither ours (user_version 2) nor the M2 app's
 }
 
 bool Database::tableExists(const QString& name) {
@@ -1354,7 +1386,10 @@ std::chrono::system_clock::time_point
 Database::convertStringToTime(const std::string& text) {
     QDateTime parsed = QDateTime::fromString(QString::fromStdString(text), Qt::ISODate);
     if (!parsed.isValid()) {
-        throw std::runtime_error("Failed to parse date/time string: " + text);
+        // A hand-edited or corrupt row must not crash the server: log it and
+        // use the epoch instead.
+        std::cerr << "Database: unreadable time \"" << text << "\"" << std::endl;
+        return {};
     }
     return std::chrono::system_clock::time_point(
         std::chrono::seconds(parsed.toSecsSinceEpoch()));

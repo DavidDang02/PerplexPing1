@@ -104,8 +104,8 @@ public:
     // [F4] False if there is no such user.
     Result<bool> setPassword(int userId, const std::string& hashHex, const std::string& saltHex,
                              int iterations);
-    // [F4] False if another user has that email (ignoring case) or there is
-    // no such user.
+    // [F4] Error::EmailTaken if another user has that email (ignoring
+    // case); false if there is no such user.
     Result<bool> setEmail(int userId, const std::string& email);
 
     // [F4] U8: number of live sessions this user started (host_id).
@@ -142,6 +142,7 @@ public:
     Result<bool> updateCourse(int courseId, const std::string& name, bool anonymous,
                              bool questionsShared);
     // [S] Deletes the course with its members, sessions, inputs and answers.
+    // False if there is no such course.
     Result<bool> deleteCourse(int courseId);
     // [F5] R6. Saves the course's Panopto folder id; "" unlinks it. False
     // if there is no such course.
