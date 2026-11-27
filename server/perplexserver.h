@@ -52,6 +52,9 @@ private:
                                        QJsonObject& reply)>;
 
     void registerHandlers();
+    // Sends {"type":"loggedOut","reason":reason} to every connection of this
+    // user except `except`, and logs each of them out.
+    void logOutOtherConnections(QWebSocket* except, int userId, const QString& reason);
 
     Database* db_;
     QWebSocketServer* server_;

@@ -194,6 +194,39 @@ bool recordingFromJson(const QJsonObject& obj, Recording& recording) {
     return true;
 }
 
+// ---- Recording candidates (checkRecording) ----
+
+QJsonObject toJson(const RecordingCandidate& candidate) {
+    QJsonObject obj;
+    obj[Field::kUrl] = QString::fromStdString(candidate.viewerUrl);
+    obj[Field::kName] = QString::fromStdString(candidate.name);
+    obj[Field::kStartTime] = toMs(candidate.start);
+    obj[Field::kDurationSeconds] = candidate.durationSeconds;
+    return obj;
+}
+
+QJsonArray toJson(const std::vector<RecordingCandidate>& candidates) {
+    QJsonArray arr;
+    for (const auto& candidate : candidates) {
+        arr.append(toJson(candidate));
+    }
+    return arr;
+}
+
+std::vector<RecordingCandidate> candidatesFromJson(const QJsonArray& json) {
+    std::vector<RecordingCandidate> candidates;
+    for (const QJsonValue& value : json) {
+        const QJsonObject obj = value.toObject();
+        RecordingCandidate candidate;
+        candidate.viewerUrl = obj[Field::kUrl].toString().toStdString();
+        candidate.name = obj[Field::kName].toString().toStdString();
+        candidate.start = fromMs(obj[Field::kStartTime].toInteger());
+        candidate.durationSeconds = obj[Field::kDurationSeconds].toInteger();
+        candidates.push_back(std::move(candidate));
+    }
+    return candidates;
+}
+
 // ---- Participant ----
 
 QJsonObject toJson(const Participant& p) {

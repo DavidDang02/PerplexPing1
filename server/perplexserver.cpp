@@ -82,6 +82,15 @@ QJsonObject sessionToM2Json(const Session& session) {
     return obj;
 }
 
+// Marks the reply as failed with this error, the same shape the other
+// handlers use: {"ok": false, "error": "<code>", "code": "<code>"}.
+void setFailure(QJsonObject& reply, Error error) {
+    const QString code = QString::fromStdString(getErrorCode(error));
+    reply[Protocol::Field::kOk] = false;
+    reply[Protocol::Reply::kError] = code;
+    reply[Protocol::Field::kCode] = code;
+}
+
 }  // namespace
 
 PerplexServer::PerplexServer(int port, Database* db, QObject* parent,
@@ -540,6 +549,260 @@ void PerplexServer::registerHandlers() {
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
         });
+
+    // ---- Accounts: change password, change email, delete (U6-U8) ----
+
+    handlers_.insert(Protocol::Request::kChangePassword,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kOldPassword, 's'},
+                                               {Protocol::Field::kNewPassword, 's'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            const Error err = state.model->changePassword(
+                request[Protocol::Field::kOldPassword].toString().toStdString(),
+                request[Protocol::Field::kNewPassword].toString().toStdString());
+            if (err != Error::None) {
+                setFailure(reply, err);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+        });
+
+    handlers_.insert(Protocol::Request::kUpdateEmail,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kEmail, 's'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<User> res = state.model->updateEmail(
+                request[Protocol::Field::kEmail].toString().toStdString());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    handlers_.insert(Protocol::Request::kDeleteAccount,
+        [this](QWebSocket* client, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kPassword, 's'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            const int userId = state.userId;
+            const Error err = state.model->deleteAccount(
+                request[Protocol::Field::kPassword].toString().toStdString());
+            if (err != Error::None) {
+                setFailure(reply, err);
+                return;
+            }
+            // AppModel already logged this connection out. The same user may
+            // be logged in on other devices: log those out too (U8).
+            state.authenticated = false;
+            state.userId = -1;
+            logOutOtherConnections(client, userId, Protocol::kReasonAccountDeleted);
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kReason] = Protocol::kReasonAccountDeleted;
+        });
+
+    // ---- Courses: settings and delete (C6, C7, C9) ----
+
+    handlers_.insert(Protocol::Request::kUpdateCourse,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            // All three are sent every time (appmodel.h), so none can be left out.
+            if (!Protocol::hasFields(request, {{Protocol::Field::kCourseId, 'i'},
+                                               {Protocol::Field::kName, 's'},
+                                               {Protocol::Field::kAnonymous, 'b'},
+                                               {Protocol::Field::kQuestionsShared, 'b'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<Course> res = state.model->updateCourse(
+                request[Protocol::Field::kCourseId].toInt(),
+                request[Protocol::Field::kName].toString().toStdString(),
+                request[Protocol::Field::kAnonymous].toBool(),
+                request[Protocol::Field::kQuestionsShared].toBool());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    handlers_.insert(Protocol::Request::kDeleteCourse,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kCourseId, 'i'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            const int courseId = request[Protocol::Field::kCourseId].toInt();
+            const Error err = state.model->deleteCourse(courseId);
+            if (err != Error::None) {
+                setFailure(reply, err);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kCourseId] = courseId;
+        });
+
+    // ---- Sessions: publish, rename, delete (S8, S9, S11) ----
+
+    handlers_.insert(Protocol::Request::kPublishSession,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<Session> res = state.model->publishSession(
+                request[Protocol::Field::kSessionId].toInt());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    handlers_.insert(Protocol::Request::kRenameSession,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'},
+                                               {Protocol::Field::kName, 's'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<Session> res = state.model->renameSession(
+                request[Protocol::Field::kSessionId].toInt(),
+                request[Protocol::Field::kName].toString().toStdString());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    handlers_.insert(Protocol::Request::kDeleteSession,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<Session> res = state.model->deleteSession(
+                request[Protocol::Field::kSessionId].toInt());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kSessionId] = res.value.getId();
+            reply[Protocol::Field::kCourseId] = res.value.getCourseId();
+        });
+
+    // ---- Answers: edit and delete (A3, A7, A8) ----
+
+    handlers_.insert(Protocol::Request::kEditAnswer,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kAnswerId, 'i'},
+                                               {Protocol::Field::kText, 's'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<QuestionChange> res = state.model->editAnswer(
+                request[Protocol::Field::kAnswerId].toInt(),
+                request[Protocol::Field::kText].toString().toStdString());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
+        });
+
+    handlers_.insert(Protocol::Request::kDeleteAnswer,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kAnswerId, 'i'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<QuestionChange> res = state.model->deleteAnswer(
+                request[Protocol::Field::kAnswerId].toInt());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value.question);
+        });
+
+    // ---- Recording: attach, remove, auto-match (R1-R3, R6) ----
+
+    handlers_.insert(Protocol::Request::kAttachRecording,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'},
+                                               {Protocol::Field::kUrl, 's'},
+                                               {Protocol::Field::kOffsetSeconds, 'i'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            // "source" is optional: a pasted link is "manual".
+            const RecordingSource source = Protocol::sourceFromText(
+                request[Protocol::Field::kSource].toString());
+            Result<Session> res = state.model->attachRecording(
+                request[Protocol::Field::kSessionId].toInt(),
+                request[Protocol::Field::kUrl].toString().toStdString(),
+                request[Protocol::Field::kOffsetSeconds].toInteger(),
+                source);
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    handlers_.insert(Protocol::Request::kRemoveRecording,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'}})) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<Session> res = state.model->removeRecording(
+                request[Protocol::Field::kSessionId].toInt());
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
+
+    // The app asks Panopto for the course folder's recordings and sends them
+    // here; AppModel picks the one that overlaps the session.
+    handlers_.insert(Protocol::Request::kCheckRecording,
+        [](QWebSocket*, ClientState& state, const QJsonObject& request, QJsonObject& reply) {
+            if (!Protocol::hasFields(request, {{Protocol::Field::kSessionId, 'i'}}) ||
+                !request[Protocol::Field::kCandidates].isArray()) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            const QJsonArray candidates = request[Protocol::Field::kCandidates].toArray();
+            if (candidates.size() > Protocol::kMaxCandidates) {
+                setFailure(reply, Error::BadRequest);
+                return;
+            }
+            Result<Session> res = state.model->matchRecording(
+                request[Protocol::Field::kSessionId].toInt(),
+                Protocol::candidatesFromJson(candidates));
+            if (!res.isOk()) {
+                setFailure(reply, res.error);
+                return;
+            }
+            reply[Protocol::Field::kOk] = true;
+            reply[Protocol::Field::kData] = Protocol::toJson(res.value);
+        });
 }
 
 void PerplexServer::onNewConnection() {
@@ -621,4 +884,19 @@ void PerplexServer::onClientDisconnected() {
     }
     clients_.remove(client);
     client->deleteLater();
+}
+
+void PerplexServer::logOutOtherConnections(QWebSocket* except, int userId,
+                                           const QString& reason) {
+    for (auto it = clients_.begin(); it != clients_.end(); ++it) {
+        if (it.key() == except || it.value().userId != userId) {
+            continue;
+        }
+        it.value().model->logOut();
+        it.value().authenticated = false;
+        it.value().userId = -1;
+        QJsonObject message = Protocol::makeMessage(Protocol::Reply::kLoggedOut);
+        message[Protocol::Field::kReason] = reason;
+        it.key()->sendTextMessage(Protocol::encode(message));
+    }
 }
