@@ -2,12 +2,12 @@
 // model, the server, the protocol and the app. Plain C++ (no Qt).
 //
 // The model returns an Error (None = it worked). The server sends its code
-// text ("QuestionTooLong") in an "error" message. The VIEW turns it into a
-// sentence (view/viewtext.h); nobody else writes user-facing text.
+// text ("QuestionTooLong") in the failed reply's "code". The VIEW turns it
+// into a sentence (client/viewtext.h); nobody else writes user-facing text.
 //
 // Owner: Model layer. Adding a value = add it here, in getErrorCode(), in
-// ViewText::getErrorText() (View owner) and in CONTRACT.md 9.4. Rule numbers
-// refer to CONTRACT.md.
+// ViewText::getErrorText() (View owner). Rule numbers (U1, S9, ...) refer
+// to REQUIREMENTS.md.
 //
 // "NoSuch..." is also the answer when the thing exists but the user may not
 // know that (not a member of the course): the server never confirms that a

@@ -11,8 +11,8 @@ Built on top of master (the M2 prototype). Keep the M2 tests passing.
 | Database | `schema.sql`, `Database` class, migration from the M2 file | `database.cpp`, `tests/test_database.cpp` |
 | Model | `User`, `Course`, `Session`, `LostPing`, `SessionQuestion`, `Answer`, `AppModel` (all the rules) | `*.cpp` for those, `tests/test_appmodel.cpp` |
 | Server | `PerplexServer`: owns the one SQLite file, one `AppModel` per connection, broadcasts changes | `perplexserver.h/.cpp`, `server_main.cpp` |
-| Controller | `ServerClient` (WebSocket in the app), `AppController` (view signal → request, reply → view), `PanoptoClient` | their `.h/.cpp`, `tests/test_protocol.cpp` |
-| View | `MainWindow` and the pages in section 7 | each page's `.h/.cpp` |
+| Controller | `ServerClient` (WebSocket in the app), `AppController` (page slot → request, reply/push → getters + signals), `PanoptoClient` / `PanoptoOAuthClient` | `client/*.h/.cpp`, `tests/test_e2e.cpp` |
+| View | `MainWindow`, the pages in section 7, `ViewText` | `client/` page files |
 
 Shared by everyone (in `server/`, compiled into both the app and the server; don't change without telling the team): `schema.sql`, `database.h`, `appmodel.h`, `protocol.h`, `error.h`, `validation.h`, and the data classes `user.h`, `course.h`, `session.h`, `lostping.h`, `sessionquestion.h`, `answer.h`, `recording.h`.
 
@@ -44,7 +44,7 @@ Courses
 - Each course has a 6-character course code. Students join with it.
 - Two course toggles, set by the educator: **anonymous** (server hides names) and **questions shared** (after a session is published, students see everyone's questions, not only their own).
 
-Sessions: `live → in_review → published`
+Sessions: `live → in_review → published` (every rule, numbered, is in REQUIREMENTS.md)
 - An educator starts a session in their course. It gets a 6-digit session code. One live session per course.
 - **Live:** students press Lost and ask questions. A student sees only their own items and can edit or delete them. The educator's live view is read-only (counts and participants). Nobody answers during the session.
 - **End:** everything locks for students. Session moves to `in_review`. Students see a placeholder row for it.
@@ -61,7 +61,7 @@ Tables (full SQL in `server/schema.sql`, `PRAGMA user_version = 2`):
 | Table | Key columns |
 |---|---|
 | Users | user_id, user_name (unique, nocase), user_email (unique), password_hash, password_salt, password_iterations, created_time |
-| Courses | course_id, course_name, course_join_code (unique), is_anonymous, questions_shared, educator_id → Users, created_time |
+| Courses | course_id, course_name, course_join_code (unique), is_anonymous, questions_shared, educator_id → Users, panopto_folder_id, created_time |
 | CourseMembers (students only) | (course_id, user_id), joined_time |
 | Sessions | session_id, course_id, host_id, session_name, join_code, status, start_date, end_date, published_at, recording_url, recording_offset, recording_source |
 | SessionLostPings | ping_id, session_id, user_id, ping_time |
@@ -84,7 +84,7 @@ Rules for `database.cpp`:
 3. Prepared statements with bound values only. Never build SQL by gluing strings.
 4. One statement per `exec`. Multi-step writes go in a transaction.
 5. Never log password hashes or salts.
-6. An M2 file (v1) is backed up to `.v1.bak` and migrated on open.
+6. An M2 file (v1) is refused on open and left as it was (delete or rename it). A v2 file missing a newer column gets it added.
 7. **Tests use a fresh temp file per test case** (M2 grading note: shared `test.db` failed when run alone).
 
 ## 5. AppModel
@@ -143,40 +143,51 @@ The app matches a reply to its request by `id` (or by `type` if it sends one req
 
 On connect the server sends `hello` with the protocol version.
 
-## 7. View: pages, signals, display methods
+## 7. View ⇄ controller (for the pages)
 
-Each page is a `QWidget`. It emits signals and has `show...()` methods. Everything else about it is the page owner's choice. Every page also has `showError(Error)`.
+The controller is done: `client/appcontroller.h` has one **slot** per user action, one **getter** per thing a page shows, and the **signals** below. A page never talks to `ServerClient`, the server or Panopto, and never decides a rule. `tests/test_e2e.cpp` drives every slot below against a real server, so it doubles as an example of each flow.
 
-| Page | Signals (out) | Display methods (in) |
+**How every page works**
+
+1. The user does something → the page calls a controller slot (e.g. `controller->askQuestion(box->text())`). Send empty boxes too: the server rejects them and the page shows the error (M2 note: feedback on empty submit).
+2. `stateChanged()` → redraw the current page from the getters. Don't keep your own copy of courses/sessions.
+3. `requestFailed(request, error)` → show `ViewText::getErrorText(error)`; `request` (e.g. `Protocol::Request::kAddQuestion`) says next to which box.
+4. `notice(n)` → show `ViewText::getNoticeText(n)` briefly (MainWindow already does this in the status line).
+5. `busyChanged(bool)` → optionally disable buttons while waiting.
+6. **Destructive actions must ask first** (rubric): `deleteAccount`, `deleteCourse`, `endSession`, `deleteSession`, `deleteQuestion`, `deleteAnswer`, `deleteLost`, `removeRecording`. Use a `QMessageBox::question` before calling the slot.
+
+`MainWindow` already switches pages on `pageChanged(page)` and shows the "Can't reach the server" banner on `connectionChanged(false)`. Each page below replaces a placeholder in `MainWindow`.
+
+| `Page` | Shows (getters) | Calls (slots) |
 |---|---|---|
-| LoginPage | loginClicked, registerClicked | showMode, clearFields, showNotice, setBusy |
-| NavBar | homeClicked, joinSessionRequested(code), accountSettingsClicked, logoutClicked | showUser, setJoinEnabled, clearJoinCode |
-| CoursesPage (My Courses) | courseSelected, openSessionRequested, joinCourseRequested(code), createCourseRequested(name, anonymous, shared) | showCourses |
-| CoursePage | backClicked, sessionSelected, startSessionRequested, renameSessionRequested, deleteSessionRequested, courseSettingsChanged | showCourse(CourseDetail) |
-| StudentLivePage | lostClicked, questionSubmitted, editQuestionRequested, deleteQuestionRequested, deleteLostRequested, leaveClicked | showSession, showLostSent, clearQuestion |
-| EducatorLivePage | endSessionClicked, backClicked | showSession, showParticipants |
-| SessionViewerPage (review + published, includes the timeline) | backClicked, momentActivated(seconds), answerSubmitted, editAnswerRequested, deleteAnswerRequested, removeQuestionRequested, attachRecordingRequested, removeRecordingRequested, autoMatchRequested, publishRequested | showSession, selectQuestion, clearAnswerBox, setPanoptoConfigured, setAutoMatchBusy |
-| AccountDialog | emailChangeRequested, passwordChangeRequested, deleteAccountRequested | showUser, showNotice, clearPasswordFields |
+| `Login` (done: `LoginPage`) | – | `logIn(name, pw)`, `registerUser(name, pw, email)` |
+| `Courses` (My Courses) | `getUser()`, `getCourses()` (each `Course`: name, `getRole()`, code if educator) | `openCourse(id)`, `createCourse(name, anonymous, shared)`, `joinCourse(code)`, `joinSession(code)`, `logOut()`, account: `changePassword(old, new)`, `updateEmail(email)`, `deleteAccount(pw)` |
+| `Course` | `getOpenCourse()` (course + its toggles, code, `hasPanoptoFolder()`), `getVisibleSessions()` (rows: `ViewText::formatSessionRow`), `getRole()` | `goHome()`, `openSession(id)`, `setSessionSearch(text)`; educator: `startSession(name)`, `renameSession(id, name)`, `deleteSession(id)`, `updateCourse(name, anon, shared)`, `deleteCourse()` |
+| `StudentLive` | `getOpenSession()` (status line: `ViewText::formatLiveStatus`; only your own pings and questions) | `pressLost()`, `askQuestion(text)`, `editQuestion(id, text)`, `deleteQuestion(id)`, `deleteLost(id)`, `leaveSession()` |
+| `EducatorLive` | `getOpenSession()` (code, counts), `getTimeline()` so far, `getParticipants()` (+ `participantsChanged()`) | `endSession()`, `leaveSession()` |
+| `SessionViewer` (review for the educator, published for everyone) | `getOpenSession()`, `getTimeline()` + `Timeline::getPeakIndex(...)` (bars), `getVisibleQuestions()` (each with its answers; authors via `ViewText::formatAuthor`), `getRole()` | `jumpTo(seconds)` (timeline or question click), `setQuestionSearch(text, unansweredOnly)`, `addAnswer(qid, text)`, `editAnswer(id, text)`, `deleteAnswer(id)`, `leaveSession()`; educator: `deleteQuestion(id)`, `publishSession()`, `attachRecording(url, startsAt)`, `removeRecording()`, `linkPanoptoFolder(lectureLink)` (setup card, when `!hasPanoptoFolder()`), `findRecording()` |
 
-Every empty-able box still emits its signal when empty; the model rejects it and the page shows the error (M2 grading note: feedback on empty submit). Every button needs a clear label or tooltip.
+**Video:** `playRecording(url)` means "play this Panopto link" (it already starts 10 s before the moment). The player is a `QWebEngineView` loading the full viewer page, as in the Nov 20 spike (`deliverables/Final/video-spike/`). Needs `Qt6::WebEngineWidgets`.
+
+**Setup card for Find recording** (educator, course has no folder yet): step 1 "Sign in to Panopto" happens by itself when they press step 2; step 2 is a box "Paste any lecture link from this course's Panopto" + **Link**, which calls `linkPanoptoFolder(link)`; on `notice(PanoptoLinked)` show the folder as linked. After that the review page just shows **Find recording**. Keep the paste-link + "Session starts at" boxes as the fallback.
 
 ## 8. Tests each layer writes (doctest)
 
-- Database: every method, fresh DB per test, migration from a v1 file, foreign keys cascade on delete.
-- Model: each rule in section 3 (live lock, only the course's educator can run it, questions shared toggle, anonymity hides names, limits, Lost cooldown, publish order).
-- Server/Controller: every message round-trips `toJson → fromJson`; two fake clients see the right broadcasts.
-- View: none required; manual check list in README.
+- Database: every method, fresh DB per test (`:memory:`), foreign keys cascade on delete, old files.
+- Model: each rule in REQUIREMENTS.md by id (`tests/test_model_rules.cpp`, `test_server_appmodel.cpp`).
+- Server: every message round-trips `toJson → fromJson`; several fake apps see the right pushes, redacted per recipient (`test_server_live.cpp`).
+- Controller: whole user flows against a real server (`tests/test_e2e.cpp`).
+- View: `ViewText` has a sentence for every error and notice (`test_viewtext.cpp`); pages are checked by hand (README).
 
-## 9. Open decisions (settle as a team)
+## 9. Decisions made (Nov 10 – Nov 26)
 
-1. Does anonymous hide names from the educator too?
-2. Which Panopto field says "processing done"?
-3. Can people edit/delete their own answers? (contract assumes yes)
-4. Does a session code also enroll you in the course?
-5. Deleting the account that created a course keeps the course? (contract: yes, educator_id becomes NULL and the course is read-only)
-6. Must email end in @scu.edu?
-7. Timeline: click for details, double-click to jump in the video?
-8. Are anonymous Lost markers still shown? (assumed yes)
-9. In named courses, does the educator see who pressed Lost?
-
-The long reference version (with every view and controller header written out) is in `../Contract/`. It is optional reading, not part of the contract.
+1. Anonymous hides students' names from the educator too.
+2. Recordings: auto-match from the course's Panopto folder is the main flow; the educator links the folder once by pasting a lecture link; paste link + offset is the fallback. No timer: the educator presses Find recording.
+3. Users edit and delete their own answers; the educator can also delete any answer (moderation).
+4. A session code also enrolls you in the course.
+5. Deleting the account that created a course keeps the course; its items show "Deleted user".
+6. Email must end in `@scu.edu` and is required.
+7. Timeline: click a bar or a question to play that moment.
+8. I'm Lost presses never show a name, even in a named course (only counts matter).
+9. A live session can't be deleted (end it first). An old M2 database file is refused, not migrated.
+10. Times in messages are whole seconds. Failed replies keep `type`, `ok`, `error` and `code`.

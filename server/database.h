@@ -74,13 +74,13 @@ public:
 
     // [F1] Opens the file, then:
     //   - new / empty file           -> creates the v2 tables
-    //   - file from the M2 app (v1)  -> copies it to "<path>.v1.bak" and
-    //                                   migrates it (migration_v1_to_v2.sql)
-    //   - v2 file                    -> nothing
+    //   - file from the M2 app (v1)  -> refuses and leaves it as it was
+    //                                   (team decision Nov 26: no migration;
+    //                                   delete or rename the old file)
+    //   - v2 file                    -> adds any missing newer columns
     //   - a version newer than kSchemaVersion -> refuses
-    // Returns false if the file can't be opened, the migration fails (the
-    // file is then left as it was) or the version is newer. Never crashes
-    // on an old file.
+    // Returns false if the file can't be opened, is an M2 file or the
+    // version is newer. Never crashes on an old file.
     Result<bool> open();
 
     // 0 before open(); kSchemaVersion after a successful open().
@@ -231,7 +231,7 @@ public:
 
 private:
     bool createTables();     // schema.sql
-    bool migrateV1ToV2();    // migration_v1_to_v2.sql
+    bool migrateV1ToV2();    // none yet: always refuses (see open())
     // What kind of file was opened: 0 = empty, 1 = made by the M2 app
     // (user_version 0 and a Users table with a user_password column),
     // otherwise PRAGMA user_version.
