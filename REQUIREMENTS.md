@@ -62,7 +62,7 @@ Text is trimmed (spaces, tabs and line breaks at both ends) before it is checked
 | C4 | Joining with a code makes you a student (spaces at the ends and lower case are forgiven). Joining twice changes nothing. | NoSuchCourseCode |
 | C5 | Someone not in a course can't see it or anything in it; they get the same answer as for something that doesn't exist | NoSuchCourse, NoSuchSession |
 | C6 | Only the course's educator changes it, runs its sessions, or deletes it | NotCourseEducator |
-| C7 | **Anonymous** (default off) hides every student's name from everyone, the educator too. **Questions shared** (default on) lets students see each other's questions once a session is published. Changes apply at once to every session. | – |
+| C7 | **Anonymous** (default off) hides each student's name from the other students; the educator still sees every name. **Questions shared** (default on) lets students see each other's questions once a session is published. Changes apply at once to every session. | – |
 | C8 | Only the educator sees the course code and the Panopto folder | – |
 
 ### Sessions (S)
@@ -109,9 +109,9 @@ Text is trimmed (spaces, tabs and line breaks at both ends) before it is checked
 |---|---|
 | V1 | While live, a student sees only their own presses and questions |
 | V2 | I'm Lost presses never show a name (except your own) |
-| V3 | Questions and student answers show names in a named course and "Anonymous" in an anonymous one; the educator's answers always show the name |
+| V3 | Questions and student answers show names in a named course. In an anonymous course, other students see "Anonymous" while the educator still sees the name; the educator's answers always show the name |
 | V4 | A hidden name never leaves the server (it is removed per person before sending) |
-| V5 | Only the educator sees who is connected to a live session; in an anonymous course only the count |
+| V5 | Only the educator sees who is connected to a live session, with names, in every course |
 
 ### Recording (R)
 | # | Rule | Error |

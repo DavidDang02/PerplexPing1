@@ -42,7 +42,7 @@ Courses
 - "Am I the educator here" is worked out each time (`educator_id == me`) and checked in the model, never just hidden in the view, and never saved on the user.
 - Stretch (not planned): several educators/TAs per course.
 - Each course has a 6-character course code. Students join with it.
-- Two course toggles, set by the educator: **anonymous** (server hides names) and **questions shared** (after a session is published, students see everyone's questions, not only their own).
+- Two course toggles, set by the educator: **anonymous** (server hides students' names from other students; the educator still sees them) and **questions shared** (after a session is published, students see everyone's questions, not only their own).
 
 Sessions: `live → in_review → published` (every rule, numbered, is in REQUIREMENTS.md)
 - An educator starts a session in their course. It gets a 6-digit session code. One live session per course.
@@ -181,7 +181,7 @@ The controller is done: `client/appcontroller.h` has one **slot** per user actio
 
 ## 9. Decisions made (Nov 10 – Nov 26)
 
-1. Anonymous hides students' names from the educator too.
+1. Anonymous hides students' names from other students only; the educator still sees them.
 2. Recordings: auto-match from the course's Panopto folder is the main flow; the educator links the folder once by pasting a lecture link; paste link + offset is the fallback. No timer: the educator presses Find recording.
 3. Users edit and delete their own answers; the educator can also delete any answer (moderation).
 4. A session code also enrolls you in the course.

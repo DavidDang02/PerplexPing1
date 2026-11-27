@@ -122,13 +122,15 @@ void Visibility::redactSession(Session& session, const Course& course, const Vie
             continue; // Student does not see other students' questions if not shared
         }
 
-        if (course.isAnonymous() && !question.isBy(viewer.userId)) {
+        // Anonymous hides names from classmates; the educator still sees them (V3).
+        if (course.isAnonymous() && viewer.role != CourseRole::Educator && !question.isBy(viewer.userId)) {
             question.hideAuthor();
         }
 
         std::vector<Answer> answers = question.getAnswers();
         for (auto& answer : answers) {
-            if (course.isAnonymous() && !answer.isByEducator() && !answer.isBy(viewer.userId)) {
+            if (course.isAnonymous() && viewer.role != CourseRole::Educator && !answer.isByEducator()
+                && !answer.isBy(viewer.userId)) {
                 answer.hideAuthor();
             }
         }

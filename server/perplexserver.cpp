@@ -609,11 +609,6 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             pushCourseChanged(client, res.value.getId());
-            // Anonymous may have just changed: the educator's list of who is
-            // connected must follow it at once (V5).
-            if (res.value.getLiveSessionId() != 0) {
-                pushParticipantsLater(res.value.getLiveSessionId(), res.value.getId());
-            }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
@@ -1038,7 +1033,6 @@ void PerplexServer::pushParticipantsLater(int sessionId, int courseId) {
     QMetaObject::invokeMethod(this, [this, sessionId, courseId] {
         std::vector<Participant> participants;
         QList<QWebSocket*> educators;
-        bool anonymous = false;
         for (auto it = clients_.cbegin(); it != clients_.cend(); ++it) {
             const ClientState& state = it.value();
             if (state.openSessionId != sessionId) {
@@ -1047,8 +1041,6 @@ void PerplexServer::pushParticipantsLater(int sessionId, int courseId) {
             const Viewer viewer = getViewer(state, courseId);
             if (viewer.role == CourseRole::Educator) {
                 educators.append(it.key());
-                Result<CourseDetail> course = state.model->getCourse(courseId);
-                anonymous = course.isOk() && course.value.course.isAnonymous();
             } else if (viewer.role == CourseRole::Student) {
                 // One line per student, even if they have the session open twice.
                 const bool listed = std::any_of(participants.begin(), participants.end(),
@@ -1060,11 +1052,6 @@ void PerplexServer::pushParticipantsLater(int sessionId, int courseId) {
         }
         if (educators.isEmpty()) {
             return;
-        }
-        if (anonymous) {
-            for (Participant& p : participants) {
-                p = Participant{};  // still counted, never named
-            }
         }
         QJsonObject message = Protocol::makeMessage(Protocol::Reply::kParticipants);
         message[Protocol::Field::kSessionId] = sessionId;

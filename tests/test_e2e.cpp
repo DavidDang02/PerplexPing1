@@ -375,13 +375,37 @@ TEST_CASE("E2E: deleting a session or course moves everyone who had it open") {
     REQUIRE(waitFor([&] { return ana->getCourses().empty(); }));
 }
 
-TEST_CASE("E2E: anonymous course hides names from the educator's participant list") {
+TEST_CASE("E2E: anonymous course still names the educator's participant list") {
     Lecture l(/*anonymous=*/true);
     REQUIRE(waitFor([&] { return (*l.prof)->getParticipants().size() == 2; }));
     for (const Participant& p : (*l.prof)->getParticipants()) {
-        CHECK(p.name.empty());
-        CHECK(p.userId == 0);
+        CHECK_FALSE(p.name.empty());
+        CHECK(p.userId != 0);
     }
+}
+
+TEST_CASE("E2E: anonymous course hides who asked from classmates, not the educator") {
+    Lecture l(/*anonymous=*/true);
+    App& prof = *l.prof;
+    App& bob = *l.bob;
+    (*l.ana)->askQuestion(QStringLiteral("Why does the base case stop it?"));
+    REQUIRE(waitFor([&] { return prof.open().getQuestionCount() == 1; }));
+    CHECK(prof.open().getQuestions().front().getAuthorState() == AuthorState::Known);
+    CHECK(prof.open().getQuestions().front().getAuthorName() == "ana");
+
+    prof->endSession();
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::SessionViewer; }));
+    const int sessionId = prof.open().getId();
+    prof->publishSession();
+    REQUIRE(waitFor([&] { return prof.open().isPublished(); }));
+    CHECK(prof.open().getQuestions().front().getAuthorName() == "ana");
+
+    REQUIRE(waitFor([&] { return bob->getPage() == Page::Course; }));
+    bob->openSession(sessionId);
+    REQUIRE(waitFor([&] { return bob->getPage() == Page::SessionViewer; }));
+    REQUIRE(bob.open().getQuestionCount() == 1);
+    CHECK(bob.open().getQuestions().front().getAuthorState() == AuthorState::Hidden);
+    CHECK(bob.open().getQuestions().front().getAuthorName().empty());
 }
 
 TEST_CASE("E2E: search boxes filter sessions and questions without asking the server") {
