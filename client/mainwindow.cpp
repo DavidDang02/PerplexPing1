@@ -26,7 +26,7 @@ MainWindow::MainWindow(AppController* controller, QWidget* parent)
     layout->addWidget(stack, 1);
 
     status = new QLabel(central);
-    status->setStyleSheet("padding:6px 12px; color:#333;");
+    status->setStyleSheet("padding:6px 12px;");
     status->setWordWrap(true);
     layout->addWidget(status);
     setCentralWidget(central);
@@ -63,6 +63,7 @@ MainWindow::MainWindow(AppController* controller, QWidget* parent)
     connect(controller, &AppController::requestFailed, this, [this](const QString& request, Error error) {
         if (request == Protocol::Request::kLogin || request == Protocol::Request::kRegister) {
             loginPage->showError(error);
+            return;
         }
         status->setText(ViewText::getErrorText(error));
     });
@@ -93,7 +94,7 @@ QWidget* MainWindow::makePlaceholder(const QString& name) {
     auto* layout = new QVBoxLayout(widget);
     auto* label = new QLabel(name + "\n(page coming: built on AppController's signals)", widget);
     label->setAlignment(Qt::AlignCenter);
-    label->setStyleSheet("font-size:18px; color:#666;");
+    label->setStyleSheet("font-size:18px; color:palette(mid);");
     layout->addWidget(label);
     return widget;
 }
