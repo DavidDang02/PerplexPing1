@@ -22,8 +22,15 @@ ServerClient::ServerClient(const QString& url, int connectTimeoutMs)
   QEventLoop connectLoop;
   QObject::connect(&socket_, &QWebSocket::connected, &connectLoop,
                    &QEventLoop::quit);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
   QObject::connect(&socket_, &QWebSocket::errorOccurred, &connectLoop,
                    &QEventLoop::quit);
+#else
+  // Qt 6.4 (Ubuntu 24.04, the CI image) names this signal error().
+  QObject::connect(&socket_,
+                   QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::error),
+                   &connectLoop, &QEventLoop::quit);
+#endif
   QTimer::singleShot(connectTimeoutMs_, &connectLoop, &QEventLoop::quit);
 
   socket_.open(url_);
