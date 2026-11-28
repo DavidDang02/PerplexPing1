@@ -1,9 +1,9 @@
-// VIEW: the login window. Collects a username and password and announces the
+// VIEW: the login page (a page inside MainWindow). Collects a username and password and announces the
 // Log In and Create Account clicks as signals. Does not check credentials itself.
 
 #pragma once
 
-#include <QMainWindow>
+#include <QWidget>
 #include <QString>
 
 #include "error.h"
@@ -12,7 +12,7 @@ namespace Ui {
 class LoginPage;
 }
 
-class LoginPage : public QMainWindow {
+class LoginPage : public QWidget {
   Q_OBJECT
 
  public:

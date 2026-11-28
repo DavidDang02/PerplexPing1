@@ -484,3 +484,51 @@ TEST_CASE("Live push: an anonymous course still names the room list for the educ
         CHECK_FALSE(person.toObject()[Field::kName].toString().isEmpty());
     }
 }
+
+TEST_CASE("Notifications: the educator hears when a student joins the course") {
+    Room room;  // ana and bob joined by session code, which enrolled them
+
+    const auto first = room.prof->waitPush(Reply::kStudentJoined);
+    const auto second = room.prof->waitPush(Reply::kStudentJoined);
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK((*first)[Field::kCourseId].toInt() == room.courseId);
+    CHECK((*first)[Field::kName].toString() == QStringLiteral("ana"));
+    CHECK((*second)[Field::kName].toString() == QStringLiteral("bob"));
+    CHECK(room.ana->getsNo(Reply::kStudentJoined));  // students aren't told
+
+    // Joining by course code tells the educator too.
+    FakeApp cat(room.server->port());
+    cat.login(QStringLiteral("cat"));
+    const QJsonObject course = room.prof->send(Request::kGetCourse,
+        fields({{Field::kCourseId, room.courseId}}))[Field::kData].toObject();
+    REQUIRE(cat.send(Request::kJoinCourse,
+        fields({{Field::kJoinCode, course[Field::kJoinCode].toString()}}))[Field::kOk].toBool());
+    const auto third = room.prof->waitPush(Reply::kStudentJoined);
+    REQUIRE(third.has_value());
+    CHECK((*third)[Field::kName].toString() == QStringLiteral("cat"));
+}
+
+TEST_CASE("Notifications: the educator is told who joined, even in an anonymous course") {
+    Room room(true);
+    const auto joined = room.prof->waitPush(Reply::kStudentJoined);
+    REQUIRE(joined.has_value());
+    CHECK((*joined)[Field::kName].toString() == QStringLiteral("ana"));
+    CHECK(room.ana->getsNo(Reply::kStudentJoined));  // classmates never get it
+}
+
+TEST_CASE("Notifications: students hear when a session is published") {
+    Room room;
+    REQUIRE(room.prof->send(Request::kEndSession, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
+    CHECK(room.ana->getsNo(Reply::kSessionPublished));  // ending is not publishing
+
+    REQUIRE(room.prof->send(Request::kPublishSession, fields({{Field::kSessionId, room.sessionId}}))[Field::kOk].toBool());
+    for (FakeApp* student : {room.ana.get(), room.bob.get()}) {
+        const auto published = student->waitPush(Reply::kSessionPublished);
+        REQUIRE(published.has_value());
+        CHECK((*published)[Field::kSessionId].toInt() == room.sessionId);
+        CHECK((*published)[Field::kCourseId].toInt() == room.courseId);
+        CHECK((*published)[Field::kName].toString() == QStringLiteral("Lecture 1"));
+    }
+    CHECK(room.prof->getsNo(Reply::kSessionPublished));
+}

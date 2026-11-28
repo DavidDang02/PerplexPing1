@@ -41,3 +41,66 @@ TEST_CASE("ViewText: offsets, durations and authors read naturally") {
     CHECK(ViewText::formatAuthor(AuthorState::Deleted, "") == "Deleted user");
     CHECK(ViewText::formatAuthor(AuthorState::Known, "ana") == "ana");
 }
+
+TEST_CASE("ViewText: bell notifications") {
+    AppNotification n;
+    n.kind = AppNotification::Kind::StudentJoinedCourse;
+    n.courseName = "CSCI 187";
+    n.studentName = "ana";
+    CHECK(ViewText::formatNotification(n) == QString("ana joined CSCI 187"));
+    n.studentName = "";
+    CHECK(ViewText::formatNotification(n) == QString("A student joined CSCI 187"));
+
+    n.kind = AppNotification::Kind::StudentJoinedSession;
+    n.studentName = "bob";
+    n.sessionName = "Lecture 1";
+    CHECK(ViewText::formatNotification(n) == QString("bob joined your live session Lecture 1"));
+
+    n.kind = AppNotification::Kind::SessionPublished;
+    CHECK(ViewText::formatNotification(n) == QString("Lecture 1 was published in CSCI 187"));
+    n.courseName = "";
+    CHECK(ViewText::formatNotification(n) == QString("Lecture 1 was published in your course"));
+
+    const auto now = Session::Clock::now();
+    CHECK(ViewText::formatTimeAgo(now - std::chrono::seconds(20), now) == QString("Just now"));
+    CHECK(ViewText::formatTimeAgo(now - std::chrono::minutes(5), now) == QString("5 min ago"));
+    CHECK(ViewText::formatTimeAgo(now - std::chrono::hours(3), now) == QString("3 h ago"));
+    const auto old = now - std::chrono::hours(30);
+    CHECK(ViewText::formatTimeAgo(old, now) == ViewText::formatClockTime(old));
+}
+
+TEST_CASE("ViewText: course and session cards") {
+    Course course(1, "CSCI 187");
+    course.setRole(CourseRole::Educator);
+    course.setJoinCode("K7M2QX");
+    CHECK(ViewText::formatCourseCardDetail(course) == "Course code K7M2QX");
+    course.setRole(CourseRole::Student);
+    CHECK(ViewText::formatCourseCardDetail(course) == "");
+
+    const auto t0 = Session::Clock::time_point(std::chrono::hours(24 * 365 * 50));
+    const QString when = ViewText::formatClockTime(t0);
+    SessionSummary session;
+    session.name = "Lecture 3";
+    session.startTime = t0;
+    session.status = SessionStatus::Live;
+    session.lostCount = 3;
+    session.questionCount = 1;
+    CHECK(ViewText::formatSessionCardDetail(session) == when + "\nLost: 3  ·  Questions: 1");
+
+    session.status = SessionStatus::Published;
+    session.endTime = t0 + std::chrono::minutes(50);
+    CHECK(ViewText::formatSessionCardDetail(session) ==
+          when + "  ·  50 min\nLost: 3  ·  Questions: 1");
+
+    // A student's empty review placeholder: just when.
+    session.status = SessionStatus::InReview;
+    session.lostCount = 0;
+    session.questionCount = 0;
+    CHECK(ViewText::formatSessionCardDetail(session) == when + "  ·  50 min");
+}
+
+TEST_CASE("ViewText: the nav bar's role view") {
+    CHECK(ViewText::formatRoleView(CourseRole::Educator) == "Educator View");
+    CHECK(ViewText::formatRoleView(CourseRole::Student) == "Student View");
+    CHECK(ViewText::formatRoleView(CourseRole::None) == "");
+}

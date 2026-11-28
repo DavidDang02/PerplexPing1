@@ -43,6 +43,24 @@
 class ServerClient;
 class PanoptoClient;
 
+// One entry in the navigation bar's bell menu. Data only: the view words it
+// (ViewText::formatNotification). Kept in memory for this login only.
+struct AppNotification {
+    enum class Kind {
+        StudentJoinedCourse,   // educator: a student joined one of your courses
+        StudentJoinedSession,  // educator: a student came into your live session
+        SessionPublished,      // student: a session of your course was published
+    };
+    Kind kind = Kind::SessionPublished;
+    int courseId = 0;
+    int sessionId = 0;          // 0 for StudentJoinedCourse
+    std::string courseName;     // "" if the course isn't in My Courses yet
+    std::string sessionName;    // "" for StudentJoinedCourse
+    std::string studentName;
+    Session::Clock::time_point time;
+    bool read = false;
+};
+
 class AppController : public QObject {
     Q_OBJECT
 
@@ -114,8 +132,8 @@ public:
     std::vector<SessionQuestion> getVisibleQuestions() const;
     // The open session's timeline bars and the peak bar (-1 if none).
     std::vector<Timeline::Bucket> getTimeline() const;
-    // The students in the open live session (educator only; names empty in
-    // an anonymous course).
+    // The students in the open live session, with names (educator only; the
+    // educator sees names even in an anonymous course, C7).
     const std::vector<Participant>& getParticipants() const;
     // The role in the open course (None if no course is open).
     CourseRole getRole() const;
@@ -123,12 +141,24 @@ public:
     // this app since it started ("" otherwise; the server keeps only the id).
     QString getPanoptoFolderName() const;
     bool isBusy() const;  // a request this controller sent is still waiting
+    // The bell menu, newest first (at most kMaxNotifications).
+    const std::vector<AppNotification>& getNotifications() const;
+    int getUnreadCount() const;
+    static constexpr int kMaxNotifications = 50;
 
 public slots:
     // ---- Account ----
     void logIn(const QString& name, const QString& password);
     void registerUser(const QString& name, const QString& password, const QString& email);
     void logOut();
+    // ---- Notifications (the bell menu) ----
+    void markNotificationsRead();
+    void clearNotifications();
+    // Goes where the notification points: the published session, or the
+    // course a student joined, or the live session. Index into
+    // getNotifications().
+    void openNotification(int index);
+
     void changePassword(const QString& oldPassword, const QString& newPassword);
     void updateEmail(const QString& email);
     void deleteAccount(const QString& password);  // the page confirms first
@@ -189,6 +219,7 @@ signals:
     // Something on the current page changed: redraw it from the getters.
     void stateChanged();
     void participantsChanged();
+    void notificationsChanged();  // the bell menu or its unread count changed
     void connectionChanged(bool connected);
     void busyChanged(bool busy);
     // `request` is the Protocol::Request name that failed (so the page can
@@ -226,6 +257,11 @@ private:
     // a reply to a page load from before then is dropped.
     bool hasMovedSince(int mark) const;
     void clearAll();
+    void addNotification(AppNotification notification);
+    std::string getCourseName(int courseId) const;  // from My Courses, "" if not there
+    // Educator in a live session: new names in a fresh participant list.
+    void noticeNewParticipants(const std::vector<Participant>& before,
+                               const std::vector<Participant>& after);
 
     ServerClient* client;
     PanoptoClient* panopto;
@@ -236,6 +272,8 @@ private:
     std::optional<CourseDetail> course;
     std::optional<Session> session;
     std::vector<Participant> participants;
+    int participantsSessionId = 0;  // the session `participants` was last pushed for
+    std::vector<AppNotification> notifications;  // newest first
     std::string sessionQuery;
     std::string questionQuery;
     bool unansweredOnly = false;

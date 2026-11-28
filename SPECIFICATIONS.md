@@ -7,7 +7,7 @@ How the code is organized. What users can do and every rule (U1, S9, ...) is in 
 PerplexPing is two programs that talk over a WebSocket:
 
 ```
- app (one per person)                                   perplexing_server (one per class)
+ app (one per person)                                   perplexping_server (one per class)
  ┌──────────────────────────────────────────┐           ┌──────────────────────────────────────────┐
  │ View      MainWindow + pages, ViewText    │           │ PerplexServer   sockets, routing, pushes  │
  │   │ slot calls      ▲ signals + getters   │           │   │ one AppModel per connection           │
@@ -78,7 +78,7 @@ tests/     doctest suites (see Tests)
 | `database.h/.cpp`, `schema.sql` | `Database`: SQLite through Qt SQL. Prepared statements only, foreign keys on, a transaction for multi-step writes, adds missing columns on open, refuses an old M2 file. |
 | `passwordhasher.h/.cpp` | Salted PBKDF2-HMAC-SHA256. |
 | `joincodes.h` | Random course and session codes. |
-| `server_main.cpp` | `perplexing_server --host --port --db`. |
+| `server_main.cpp` | `perplexping_server --host --port --db`. |
 
 ### App only
 | File | What it is |

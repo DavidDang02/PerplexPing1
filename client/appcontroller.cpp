@@ -1,5 +1,7 @@
 #include "appcontroller.h"
 
+#include <algorithm>
+
 #include <QJsonArray>
 
 #include "panoptoclient.h"
@@ -45,6 +47,12 @@ const std::optional<CourseDetail>& AppController::getOpenCourse() const { return
 const std::optional<Session>& AppController::getOpenSession() const { return session; }
 const std::vector<Participant>& AppController::getParticipants() const { return participants; }
 bool AppController::isBusy() const { return !inFlight.empty(); }
+const std::vector<AppNotification>& AppController::getNotifications() const { return notifications; }
+
+int AppController::getUnreadCount() const {
+    return static_cast<int>(std::count_if(notifications.begin(), notifications.end(),
+                                          [](const AppNotification& n) { return !n.read; }));
+}
 
 std::vector<SessionSummary> AppController::getVisibleSessions() const {
     if (!course) {
@@ -140,11 +148,99 @@ void AppController::clearAll() {
     course.reset();
     session.reset();
     participants.clear();
+    participantsSessionId = 0;
     sessionQuery.clear();
     questionQuery.clear();
     unansweredOnly = false;
     rememberedName.clear();
     rememberedPassword.clear();
+    if (!notifications.empty()) {
+        notifications.clear();
+        emit notificationsChanged();
+    }
+}
+
+// ================= Notifications =================
+
+void AppController::markNotificationsRead() {
+    bool changed = false;
+    for (AppNotification& n : notifications) {
+        changed = changed || !n.read;
+        n.read = true;
+    }
+    if (changed) {
+        emit notificationsChanged();
+    }
+}
+
+void AppController::clearNotifications() {
+    if (!notifications.empty()) {
+        notifications.clear();
+        emit notificationsChanged();
+    }
+}
+
+void AppController::openNotification(int index) {
+    if (index < 0 || index >= static_cast<int>(notifications.size())) {
+        return;
+    }
+    const AppNotification n = notifications[static_cast<size_t>(index)];
+    if (!notifications[static_cast<size_t>(index)].read) {
+        notifications[static_cast<size_t>(index)].read = true;
+        emit notificationsChanged();
+    }
+    if (n.sessionId != 0) {
+        if (!isOpen(n.sessionId)) {
+            openSession(n.sessionId);
+        }
+    } else if (n.courseId != 0) {
+        openCourse(n.courseId);
+    }
+}
+
+void AppController::addNotification(AppNotification notification) {
+    notification.time = Session::Clock::now();
+    notification.read = false;
+    notifications.insert(notifications.begin(), std::move(notification));
+    if (notifications.size() > static_cast<size_t>(kMaxNotifications)) {
+        notifications.resize(static_cast<size_t>(kMaxNotifications));
+    }
+    emit notificationsChanged();
+}
+
+std::string AppController::getCourseName(int courseId) const {
+    for (const Course& c : courses) {
+        if (c.getId() == courseId) {
+            return c.getName();
+        }
+    }
+    if (course && course->course.getId() == courseId) {
+        return course->course.getName();
+    }
+    return "";
+}
+
+void AppController::noticeNewParticipants(const std::vector<Participant>& before,
+                                          const std::vector<Participant>& after) {
+    if (!session) {
+        return;
+    }
+    AppNotification base;
+    base.kind = AppNotification::Kind::StudentJoinedSession;
+    base.courseId = session->getCourseId();
+    base.sessionId = session->getId();
+    base.courseName = getCourseName(base.courseId);
+    base.sessionName = session->getName();
+
+    for (const Participant& p : after) {
+        const bool wasThere = std::any_of(before.begin(), before.end(),
+                                          [&](const Participant& q) { return q.userId == p.userId; });
+        if (!wasThere) {
+            AppNotification n = base;
+            n.studentName = p.name;
+            addNotification(n);
+        }
+    }
 }
 
 void AppController::setCourses(const QJsonObject& data) {
@@ -168,6 +264,7 @@ void AppController::setSessionFromJson(const QJsonObject& data) {
     }
     if (!fresh.isLive()) {
         participants.clear();
+        participantsSessionId = 0;
     }
     session = std::move(fresh);
 }
@@ -223,6 +320,7 @@ void AppController::reloadSession() {
                 (error == Error::SessionNotPublished || error == Error::NoSuchSession)) {
                 session.reset();
                 participants.clear();
+                participantsSessionId = 0;
                 setPage(course ? Page::Course : Page::Courses);
             }
         });
@@ -298,6 +396,7 @@ void AppController::closeOpenSession() {
     request(Request::kCloseSession, {}, nullptr);  // stop pushes; nothing to wait for
     session.reset();
     participants.clear();
+    participantsSessionId = 0;
     questionQuery.clear();
     unansweredOnly = false;
 }
@@ -399,6 +498,7 @@ void AppController::startSession(const QString& name) {
         [this](const QJsonObject& data) {
             setSessionFromJson(data);
             participants.clear();
+            participantsSessionId = 0;
             emit notice(Notice::SessionStarted);
             showSessionPage();
             refreshCourse();  // now shows the live session
@@ -439,6 +539,7 @@ void AppController::openSession(int sessionId) {
             questionQuery.clear();
             unansweredOnly = false;
             participants.clear();
+            participantsSessionId = 0;
         }
         const int courseId = session->getCourseId();
         if (course && course->course.getId() == courseId) {
@@ -460,6 +561,7 @@ void AppController::openSession(int sessionId) {
             (error == Error::SessionNotPublished || error == Error::NoSuchSession)) {
             session.reset();
             participants.clear();
+            participantsSessionId = 0;
             if (error == Error::SessionNotPublished) {
                 emit notice(Notice::SessionEndedByEducator);
             }
@@ -527,6 +629,7 @@ void AppController::deleteSession(int sessionId) {
         if (session && session->getId() == sessionId) {
             session.reset();
             participants.clear();
+            participantsSessionId = 0;
             setPage(course ? Page::Course : Page::Courses);
         }
         emit notice(Notice::SessionDeleted);
@@ -807,6 +910,7 @@ void AppController::onPush(const QJsonObject& push) {
                 // Students can't open a session in review (S12).
                 session.reset();
                 participants.clear();
+                participantsSessionId = 0;
                 emit notice(Notice::SessionEndedByEducator);
                 setPage(course ? Page::Course : Page::Courses);
             }
@@ -826,6 +930,7 @@ void AppController::onPush(const QJsonObject& push) {
         if (isOpenSession) {
             session.reset();
             participants.clear();
+            participantsSessionId = 0;
             emit notice(Notice::SessionDeleted);
             setPage(course ? Page::Course : Page::Courses);
         }
@@ -847,12 +952,34 @@ void AppController::onPush(const QJsonObject& push) {
             course.reset();
             session.reset();
             participants.clear();
+            participantsSessionId = 0;
             emit notice(Notice::CourseDeleted);
             setPage(Page::Courses);
         }
     } else if (type == Reply::kParticipants && isOpenSession) {
-        participants = participantsFromJson(push[Field::kParticipants].toArray());
+        std::vector<Participant> fresh = participantsFromJson(push[Field::kParticipants].toArray());
+        // The first list for a session is who was already there, not news.
+        if (participantsSessionId == sessionId && getRole() == CourseRole::Educator) {
+            noticeNewParticipants(participants, fresh);
+        }
+        participantsSessionId = sessionId;
+        participants = std::move(fresh);
         emit participantsChanged();
+    } else if (type == Reply::kStudentJoined) {
+        AppNotification n;
+        n.kind = AppNotification::Kind::StudentJoinedCourse;
+        n.courseId = courseId;
+        n.courseName = getCourseName(courseId);
+        n.studentName = push[Field::kName].toString().toStdString();
+        addNotification(n);
+    } else if (type == Reply::kSessionPublished) {
+        AppNotification n;
+        n.kind = AppNotification::Kind::SessionPublished;
+        n.courseId = courseId;
+        n.sessionId = sessionId;
+        n.courseName = getCourseName(courseId);
+        n.sessionName = push[Field::kName].toString().toStdString();
+        addNotification(n);
     } else if (type == Reply::kLoggedOut) {
         // This account was deleted on another device.
         clearAll();

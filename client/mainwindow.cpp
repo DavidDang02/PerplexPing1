@@ -2,25 +2,49 @@
 
 #include <QVBoxLayout>
 
+#include "coursepage.h"
+#include "coursespage.h"
+#include "educatorlivepage.h"
 #include "loginpage.h"
+#include "navbar.h"
 #include "protocol.h"
+#include "sessionviewerpage.h"
+#include "studentlivepage.h"
 #include "viewtext.h"
+
+namespace {
+// How long the app may be disconnected before the banner shows. Connecting
+// at startup takes a moment; without this the banner flashes every launch.
+constexpr int kBannerDelayMs = 3000;
+}  // namespace
 
 MainWindow::MainWindow(AppController* controller, QWidget* parent)
     : QMainWindow(parent), controller(controller) {
     setWindowTitle("PerplexPing");
-    resize(1000, 700);
+    resize(1440, 960);  // room for 20 pt text
 
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
+    navBar = new NavBar(controller, central);
+    layout->addWidget(navBar);
+
     banner = new QLabel(ViewText::getErrorText(Error::ServerUnreachable), central);
     banner->setAlignment(Qt::AlignCenter);
     banner->setStyleSheet("background:#fde7e9; color:#b00020; padding:8px; font-weight:600;");
-    banner->setVisible(!controller->isConnected());
+    banner->hide();  // shown only if still disconnected after kBannerDelayMs
     layout->addWidget(banner);
+    bannerDelay = new QTimer(this);
+    bannerDelay->setSingleShot(true);
+    bannerDelay->setInterval(kBannerDelayMs);
+    connect(bannerDelay, &QTimer::timeout, banner, [this] {
+        banner->setVisible(!this->controller->isConnected());
+    });
+    if (!controller->isConnected()) {
+        bannerDelay->start();  // the first connection is usually up well before this
+    }
 
     stack = new QStackedWidget(central);
     layout->addWidget(stack, 1);
@@ -42,20 +66,26 @@ MainWindow::MainWindow(AppController* controller, QWidget* parent)
     });
 
     using P = AppController::Page;
-    for (const auto& [page, name] : std::initializer_list<std::pair<P, QString>>{
-             {P::Courses, "My Courses"},
-             {P::Course, "Course"},
-             {P::StudentLive, "Live session (student)"},
-             {P::EducatorLive, "Live session (educator)"},
-             {P::SessionViewer, "Session viewer"}}) {
-        QWidget* placeholder = makePlaceholder(name);
-        pages.insert(page, placeholder);
-        stack->addWidget(placeholder);
+    viewerPage = new SessionViewerPage(controller, stack);
+    for (const auto& [page, widget] : std::initializer_list<std::pair<P, BasePage*>>{
+             {P::Courses, new CoursesPage(controller, stack)},
+             {P::Course, new CoursePage(controller, stack)},
+             {P::StudentLive, new StudentLivePage(controller, stack)},
+             {P::EducatorLive, new EducatorLivePage(controller, stack)},
+             {P::SessionViewer, viewerPage}}) {
+        pages.insert(page, widget);
+        stack->addWidget(widget);
     }
+    connect(controller, &AppController::playRecording, viewerPage, &SessionViewerPage::play);
 
     connect(controller, &AppController::pageChanged, this, &MainWindow::showPage);
     connect(controller, &AppController::connectionChanged, banner, [this](bool up) {
-        banner->setVisible(!up);
+        if (up) {
+            bannerDelay->stop();
+            banner->hide();
+        } else if (!banner->isVisible() && !bannerDelay->isActive()) {
+            bannerDelay->start();
+        }
     });
     connect(controller, &AppController::notice, this, [this](AppController::Notice notice) {
         status->setText(ViewText::getNoticeText(notice));
@@ -65,11 +95,22 @@ MainWindow::MainWindow(AppController* controller, QWidget* parent)
             loginPage->showError(error);
             return;
         }
+        if (navBar->showError(request, error)) {  // sent from Account Management
+            status->clear();
+            return;
+        }
+        if (BasePage* page = currentPage(); page && page->showError(request, error)) {
+            status->clear();
+            return;
+        }
         status->setText(ViewText::getErrorText(error));
     });
     connect(controller, &AppController::stateChanged, this, [this] {
         if (this->controller->getPage() == AppController::Page::Login) {
             return;
+        }
+        if (BasePage* page = currentPage()) {
+            page->refresh();
         }
         if (const User* user = this->controller->getUser()) {
             setWindowTitle("PerplexPing: " + QString::fromStdString(user->getName()));
@@ -81,20 +122,20 @@ MainWindow::MainWindow(AppController* controller, QWidget* parent)
 
 void MainWindow::showPage(AppController::Page page) {
     if (QWidget* widget = pages.value(page)) {
+        if (auto* basePage = qobject_cast<BasePage*>(widget)) {
+            basePage->clearErrors();
+            basePage->refresh();
+        }
         stack->setCurrentWidget(widget);
     }
+    navBar->setVisible(page != AppController::Page::Login);
+    navBar->refresh();
     if (page == AppController::Page::Login) {
         loginPage->clearFields();
         setWindowTitle("PerplexPing");
     }
 }
 
-QWidget* MainWindow::makePlaceholder(const QString& name) {
-    auto* widget = new QWidget(stack);
-    auto* layout = new QVBoxLayout(widget);
-    auto* label = new QLabel(name + "\n(page coming: built on AppController's signals)", widget);
-    label->setAlignment(Qt::AlignCenter);
-    label->setStyleSheet("font-size:18px; color:palette(mid);");
-    layout->addWidget(label);
-    return widget;
+BasePage* MainWindow::currentPage() const {
+    return qobject_cast<BasePage*>(stack->currentWidget());
 }

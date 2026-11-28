@@ -12,7 +12,7 @@ Students press **I'm Lost** or ask a question during a lecture, without raising 
 
 The SQLite driver comes with Qt on macOS and Windows.
 
-PerplexPing has two programs: **`perplexing_server`** (owns the database, one per class) and **`app`** (one per person). Start the server first, then any number of apps.
+PerplexPing has two programs: **`perplexping_server`** (owns the database, one per class) and **`app`** (one per person). Start the server first, then any number of apps.
 
 ## Setup and run
 
@@ -22,14 +22,14 @@ git clone https://github.com/SuaceFace/PerplexPing1
 cd PerplexPing1
 cmake -B build -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
 cmake --build build
-./build/perplexing_server        # terminal 1: leave it running
+./build/perplexping_server        # terminal 1: leave it running
 ./build/app                      # terminal 2 (and 3, 4... for more users)
 ```
 
 **Windows** (easiest: Qt Creator)
 1. Open Qt Creator → **File → Open File or Project** → pick `CMakeLists.txt`.
 2. Choose the **Desktop Qt 6 MinGW 64-bit** kit → **Configure Project**.
-3. Pick the **perplexing_server** target (bottom left) and press **Run** (green arrow). Leave it running.
+3. Pick the **perplexping_server** target (bottom left) and press **Run** (green arrow). Leave it running.
 4. Pick the **app** target and press **Run** again. Run it more than once for more users.
 
 Or from the **Qt 6 MinGW** command prompt (Start menu), replacing the Qt version with yours:
@@ -38,7 +38,7 @@ git clone https://github.com/SuaceFace/PerplexPing1
 cd PerplexPing1
 cmake -B build -G "MinGW Makefiles" -DCMAKE_PREFIX_PATH=C:\Qt\6.8.0\mingw_64
 cmake --build build
-start build\perplexing_server.exe
+start build\perplexping_server.exe
 build\app.exe
 ```
 
@@ -47,7 +47,7 @@ build\app.exe
 git clone https://github.com/SuaceFace/PerplexPing1
 cd PerplexPing1
 cmake -B build && cmake --build build
-./build/perplexing_server &
+./build/perplexping_server &
 ./build/app
 ```
 

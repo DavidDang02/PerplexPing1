@@ -11,10 +11,13 @@ set(CMAKE_AUTORCC ON)
 # Qt6::Sql gives you QSqlDatabase/QSqlQuery, backed by SQLite.
 # Qt6::WebSockets gives QWebSocket/QWebSocketServer for the client/server mode.
 find_package(Qt6 COMPONENTS Widgets Sql WebSockets Network REQUIRED)
+# Optional: plays Panopto recordings inside the app. Without it (e.g. CI,
+# which installs only qt6-base) the video player opens the browser instead.
+find_package(Qt6 COMPONENTS WebEngineWidgets QUIET)
 
 # ---- Build control options (pass -D<OPTION>=ON|OFF to cmake) ----
 option(BUILD_CLIENT "Build the client (app) executable" ON)
-option(BUILD_SERVER "Build the server (perplexing_server) executable" ON)
+option(BUILD_SERVER "Build the server (perplexping_server) executable" ON)
 option(BUILD_TESTS  "Build the database/test executables" ON)
 
 # Shared by the app and the server: the data classes, the rules they carry
@@ -55,6 +58,17 @@ set(APP_SOURCES_NO_MAIN
     client/loginpage.cpp
     client/loginpage.ui
     client/mainwindow.cpp
+    client/basepage.cpp
+    client/cardlist.cpp
+    client/navbar.cpp
+    client/timelinewidget.cpp
+    client/videoplayer.cpp
+    client/accountdialog.cpp
+    client/coursespage.cpp
+    client/coursepage.cpp
+    client/studentlivepage.cpp
+    client/educatorlivepage.cpp
+    client/sessionviewerpage.cpp
 )
 
 # ---- GUI client ----
@@ -62,17 +76,21 @@ if(BUILD_CLIENT)
     add_executable(app client/main.cpp ${APP_SOURCES_NO_MAIN})
     target_link_libraries(app PRIVATE Qt6::Widgets Qt6::WebSockets Qt6::Network)
     target_include_directories(app PRIVATE client server)
+    if(Qt6WebEngineWidgets_FOUND)
+        target_link_libraries(app PRIVATE Qt6::WebEngineWidgets)
+        target_compile_definitions(app PRIVATE PERPLEXPING_HAS_WEBENGINE)
+    endif()
 endif()
 
 # ---- Central server ----
 if(BUILD_SERVER)
-    add_executable(perplexing_server
+    add_executable(perplexping_server
         server/server_main.cpp
         server/perplexserver.cpp
         ${SERVER_MODEL_SOURCES}
     )
-    target_link_libraries(perplexing_server PRIVATE Qt6::Sql Qt6::WebSockets Qt6::Network)
-    target_include_directories(perplexing_server PRIVATE server)
+    target_link_libraries(perplexping_server PRIVATE Qt6::Sql Qt6::WebSockets Qt6::Network)
+    target_include_directories(perplexping_server PRIVATE server)
 endif()
 
 # ---- Tests ----

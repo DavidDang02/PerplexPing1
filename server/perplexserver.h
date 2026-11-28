@@ -78,12 +78,20 @@ private:
     // Sends {"type":"courseChanged","courseId":..}: the app reloads the course
     // page, and the session it shows (C7: toggles apply at once).
     void pushCourseChanged(QWebSocket* except, int courseId);
+    // Sends {"type":"studentJoined","courseId":..,"userId":..,"name":..} to
+    // the course educator's connections when `state`'s user joins the course
+    // (by course code, or by session code the first time). The educator sees
+    // the name in every course (C7). For the app's notifications.
+    void pushStudentJoined(const ClientState& state, const Course& course);
+    // Sends {"type":"sessionPublished","courseId":..,"sessionId":..,"name":..}
+    // to the course's students' connections. For the app's notifications.
+    void pushSessionPublished(QWebSocket* except, const Session& session);
     // Sets (or clears, with 0) the session this connection shows, and
     // updates the participant list of the session it left and joined.
     void setOpenSession(ClientState& state, int sessionId, int courseId);
     // Sends {"type":"participants","sessionId":..,"participants":[..]} to
     // the educator's connections showing this session: the students showing
-    // it right now (V5). Names are left out in an anonymous course. Queued,
+    // it right now, with names in every course (V5). Queued,
     // so it goes out after the reply that caused it.
     void pushParticipantsLater(int sessionId, int courseId);
 

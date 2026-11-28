@@ -2,9 +2,14 @@
 #include "ui_loginpage.h"
 
 #include "viewtext.h"
+#include "uifonts.h"
 
-LoginPage::LoginPage(QWidget* parent) : QMainWindow(parent), ui(new Ui::LoginPage) {
+LoginPage::LoginPage(QWidget* parent) : QWidget(parent), ui(new Ui::LoginPage) {
   ui->setupUi(this);
+  QFont titleFont = ui->titleLabel->font();
+  titleFont.setPointSize(UiFont::kBrand);
+  titleFont.setBold(true);
+  ui->titleLabel->setFont(titleFont);
 
   connect(ui->loginButton, &QPushButton::clicked, this, &LoginPage::loginClicked);
   connect(ui->registerButton, &QPushButton::clicked, this, &LoginPage::registerClicked);

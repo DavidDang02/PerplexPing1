@@ -3,7 +3,7 @@
 // functions fail to link ("duplicate main").
 //
 //   ./app                      connects to ws://localhost:8081
-//   ./app --host 10.0.0.5      another computer running perplexing_server
+//   ./app --host 10.0.0.5      another computer running perplexping_server
 //   ./app --port 9000
 
 #include <memory>
@@ -19,11 +19,13 @@
 #include "panoptooauthclient.h"
 #include "protocol.h"
 #include "serverclient.h"
+#include "uifonts.h"
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("PerplexPing");
     QApplication::setApplicationVersion("1.0");
+    UiFont::applyTo(app);  // 20 pt minimum everywhere
 
     QCommandLineParser parser;
     parser.setApplicationDescription("PerplexPing: tell your instructor when you're lost.");
@@ -62,7 +64,7 @@ int main(int argc, char* argv[]) {
     }
     AppController controller(&client, panopto.get());
     MainWindow window(&controller);
-    window.show();
+    window.showMaximized();  // fills the screen; the restore size is MainWindow's 1440x960
     client.start();
 
     return app.exec();

@@ -56,6 +56,10 @@ QString formatRole(CourseRole role) {
   return "";
 }
 
+QString formatRoleView(CourseRole role) {
+  return role == CourseRole::None ? QString() : formatRole(role) + " View";
+}
+
 QString formatAuthor(AuthorState state, const std::string& name) {
   switch (state) {
     case AuthorState::Known:   return QString::fromStdString(name);
@@ -86,6 +90,119 @@ QString formatLiveStatus(const Session& session) {
   return QString("Live  ·  Lost: %1  ·  Questions: %2")
       .arg(session.getPressCount())
       .arg(session.getQuestionCount());
+}
+
+QString formatCourseRow(const Course& course) {
+  QString row = QString::fromStdString(course.getName()) + "  ·  " + formatRole(course.getRole());
+  if (course.getRole() == CourseRole::Educator && !course.getJoinCode().empty()) {
+    row += "  ·  Course code " + QString::fromStdString(course.getJoinCode());
+  }
+  return row;
+}
+
+QString formatCourseCardDetail(const Course& course) {
+  if (course.getRole() == CourseRole::Educator && !course.getJoinCode().empty()) {
+    return "Course code " + QString::fromStdString(course.getJoinCode());
+  }
+  return "";
+}
+
+QString formatSessionCardDetail(const SessionSummary& session) {
+  QString when = formatClockTime(session.startTime);
+  if (!session.isLive()) {
+    when += "  ·  " + formatDuration(session.startTime, session.endTime);
+  }
+  const bool placeholder = session.isInReview() && session.lostCount == 0 &&
+                           session.questionCount == 0 && !session.hasRecording;
+  if (placeholder) {
+    return when;
+  }
+  return when + QString("\nLost: %1  ·  Questions: %2")
+                    .arg(session.lostCount)
+                    .arg(session.questionCount);
+}
+
+static QString editedMark(bool edited) {
+  return edited ? QString("  (edited)") : QString();
+}
+
+QString formatLostRow(const Session& session, const LostPing& ping) {
+  return formatOffset(session.getOffsetSeconds(ping.getTime())) + "  ·  I'm lost";
+}
+
+QString formatQuestionRow(const Session& session, const SessionQuestion& question) {
+  return formatOffset(session.getOffsetSeconds(question.getTime())) + "  ·  Q: " +
+         QString::fromStdString(question.getText()) + editedMark(question.isEdited());
+}
+
+QString formatViewerQuestion(const Session& session, const SessionQuestion& question) {
+  return formatOffset(session.getOffsetSeconds(question.getTime())) + "  ·  " +
+         QString::fromStdString(question.getText()) + "  —  " +
+         formatAuthor(question.getAuthorState(), question.getAuthorName()) +
+         editedMark(question.isEdited());
+}
+
+QString formatAnswerRow(const Answer& answer) {
+  QString who = formatAuthor(answer.getAuthorState(), answer.getAuthorName());
+  if (answer.isByEducator()) {
+    who += " (educator)";
+  }
+  return who + ": " + QString::fromStdString(answer.getText()) + editedMark(answer.isEdited());
+}
+
+QString formatBucket(const Timeline::Bucket& bucket, long long bucketSeconds, bool isPeak) {
+  QString text = QString("%1–%2  ·  Lost: %3  ·  Questions: %4")
+                     .arg(formatOffset(bucket.startSeconds))
+                     .arg(formatOffset(bucket.startSeconds + bucketSeconds))
+                     .arg(bucket.lostCount)
+                     .arg(bucket.questionCount);
+  if (isPeak) {
+    text += "  ·  most confusing";
+  }
+  return text;
+}
+
+QString formatRecording(const Recording& recording) {
+  const long long offset = recording.getOffsetSeconds();
+  QString text = offset >= 0
+                     ? "Session starts at " + formatOffset(offset) + " in the video"
+                     : "Session starts " + formatOffset(-offset) + " before the video";
+  text += recording.getSource() == RecordingSource::Panopto ? "  ·  matched from Panopto"
+                                                            : "  ·  pasted link";
+  return text;
+}
+
+QString formatTimeAgo(Session::Clock::time_point time, Session::Clock::time_point now) {
+  const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(now - time).count();
+  if (minutes < 1) {
+    return "Just now";
+  }
+  if (minutes < 60) {
+    return QString("%1 min ago").arg(minutes);
+  }
+  if (minutes < 24 * 60) {
+    return QString("%1 h ago").arg(minutes / 60);
+  }
+  return formatClockTime(time);
+}
+
+QString formatNotification(const AppNotification& notification) {
+  const QString course = notification.courseName.empty()
+                             ? QString("your course")
+                             : QString::fromStdString(notification.courseName);
+  const QString student = notification.studentName.empty()
+                              ? QString("A student")
+                              : QString::fromStdString(notification.studentName);
+  const QString session = QString::fromStdString(notification.sessionName);
+  switch (notification.kind) {
+    case AppNotification::Kind::StudentJoinedCourse:
+      return student + " joined " + course;
+    case AppNotification::Kind::StudentJoinedSession:
+      return student + " joined your live session " + session;
+    case AppNotification::Kind::SessionPublished:
+      return session + " was published in " + course;
+  }
+  return "";
 }
 
 QString getNoticeText(AppController::Notice notice) {

@@ -16,6 +16,7 @@
 
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -587,4 +588,111 @@ TEST_CASE("E2E: an educator joining their own session by code isn't told to pres
     REQUIRE(waitFor([&] { return prof->getPage() == Page::EducatorLive; }));
     CHECK(prof.got(Notice::EducatorJoined));
     CHECK_FALSE(prof.got(Notice::SessionJoined));
+}
+
+namespace {
+using Kind = AppNotification::Kind;
+int countKind(const AppController& c, Kind kind) {
+    const auto& all = c.getNotifications();
+    return static_cast<int>(std::count_if(all.begin(), all.end(),
+                                          [&](const AppNotification& n) { return n.kind == kind; }));
+}
+}  // namespace
+
+TEST_CASE("E2E: the bell tells the educator who joined the course and the live session") {
+    Lecture l;
+    App& prof = *l.prof;
+    // ana and bob each joined the course (by session code) and came into the room.
+    REQUIRE(waitFor([&] { return prof->getNotifications().size() == 4; }));
+    CHECK(countKind(prof.controller, Kind::StudentJoinedCourse) == 2);
+    CHECK(countKind(prof.controller, Kind::StudentJoinedSession) == 2);
+    CHECK(prof->getUnreadCount() == 4);
+    // ana and bob joined at the same moment, so the order between them varies.
+    std::multiset<std::string> names;
+    for (const AppNotification& n : prof->getNotifications()) {
+        names.insert(n.studentName);
+        CHECK(n.courseName == "CSCI 187");
+        if (n.kind == Kind::StudentJoinedSession) {
+            CHECK(n.sessionName == "Lecture 1: Recursion");
+        }
+    }
+    CHECK(names == std::multiset<std::string>{"ana", "ana", "bob", "bob"});
+    // Students hear nothing about each other.
+    CHECK((*l.ana)->getNotifications().empty());
+
+    prof->markNotificationsRead();
+    CHECK(prof->getUnreadCount() == 0);
+    CHECK(prof->getNotifications().size() == 4);
+
+    // Leaving and coming back: the people already there aren't news.
+    prof->leaveSession();
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::Course; }));
+    prof->joinSession(l.sessionCode);
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::EducatorLive; }));
+    REQUIRE(waitFor([&] { return prof->getParticipants().size() == 2; }));
+    settle(300);
+    CHECK(prof->getNotifications().size() == 4);
+
+    // A student leaving and coming back is news again.
+    (*l.ana)->leaveSession();
+    REQUIRE(waitFor([&] { return prof->getParticipants().size() == 1; }));
+    (*l.ana)->joinSession(l.sessionCode);
+    REQUIRE(waitFor([&] { return prof->getNotifications().size() == 5; }));
+    CHECK(prof->getNotifications().front().studentName == "ana");
+    CHECK(prof->getNotifications().front().kind == Kind::StudentJoinedSession);
+
+    // Clicking "ana joined CSCI 187" opens the course.
+    prof->endSession();
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::SessionViewer; }));
+    const auto& all = prof->getNotifications();
+    const auto joined = std::find_if(all.begin(), all.end(),
+                                     [](const AppNotification& n) { return n.kind == Kind::StudentJoinedCourse; });
+    REQUIRE(joined != all.end());
+    prof->openNotification(static_cast<int>(joined - all.begin()));
+    CHECK(waitFor([&] { return prof->getPage() == Page::Course; }));
+
+    prof->clearNotifications();
+    CHECK(prof->getNotifications().empty());
+}
+
+TEST_CASE("E2E: the bell tells students when a session is published, and opens it") {
+    Lecture l;
+    App& prof = *l.prof;
+    App& ana = *l.ana;
+    prof->endSession();
+    REQUIRE(waitFor([&] { return ana->getPage() == Page::Course; }));
+    settle(200);
+    CHECK(ana->getNotifications().empty());  // ending isn't publishing
+
+    REQUIRE(waitFor([&] { return prof->getPage() == Page::SessionViewer; }));
+    prof->publishSession();
+    REQUIRE(waitFor([&] { return ana->getNotifications().size() == 1; }));
+    const AppNotification& n = ana->getNotifications().front();
+    CHECK(n.kind == Kind::SessionPublished);
+    CHECK(n.sessionName == "Lecture 1: Recursion");
+    CHECK(n.courseName == "CSCI 187");
+    CHECK(n.sessionId == prof.open().getId());
+    CHECK(ana->getUnreadCount() == 1);
+    CHECK(countKind(prof.controller, Kind::SessionPublished) == 0);
+
+    ana->goHome();
+    REQUIRE(waitFor([&] { return ana->getPage() == Page::Courses; }));
+    ana->openNotification(0);
+    CHECK(waitFor([&] { return ana->getPage() == Page::SessionViewer; }));
+    CHECK(ana->getUnreadCount() == 0);
+
+    // A new login starts with an empty bell.
+    ana->logOut();
+    REQUIRE(waitFor([&] { return ana->getPage() == Page::Login; }));
+    CHECK(ana->getNotifications().empty());
+}
+
+TEST_CASE("E2E: in an anonymous course the bell still names who joined (the educator sees names)") {
+    Lecture l(/*anonymous=*/true);
+    REQUIRE(waitFor([&] { return (*l.prof)->getNotifications().size() == 4; }));
+    std::multiset<std::string> names;
+    for (const AppNotification& n : (*l.prof)->getNotifications()) {
+        names.insert(n.studentName);
+    }
+    CHECK(names == std::multiset<std::string>{"ana", "ana", "bob", "bob"});
 }

@@ -274,6 +274,7 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             pushCourseChanged(client, res.value.getId());  // educator sees the new student
+            pushStudentJoined(state, res.value);
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value);
         });
@@ -334,6 +335,7 @@ void PerplexServer::registerHandlers() {
             setOpenSession(state, res.value.session.getId(), res.value.session.getCourseId());
             if (res.value.newlyEnrolled) {
                 pushCourseChanged(client, res.value.course.getId());
+                pushStudentJoined(state, res.value.course);
             }
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toJson(res.value.session);
@@ -674,6 +676,7 @@ void PerplexServer::registerHandlers() {
                 return;
             }
             pushCourseChanged(client, res.value.getCourseId());  // students can open it now
+            pushSessionPublished(client, res.value);
             reply[Protocol::Field::kOk] = true;
             reply[Protocol::Field::kData] = Protocol::toDetailsJson(res.value);
         });
@@ -1012,6 +1015,38 @@ void PerplexServer::pushCourseChanged(QWebSocket* except, int courseId) {
     const QString text = Protocol::encode(message);
     for (QWebSocket* socket : getCourseConnections(except, courseId)) {
         socket->sendTextMessage(text);
+    }
+}
+
+void PerplexServer::pushStudentJoined(const ClientState& state, const Course& course) {
+    const User* student = state.model->getCurrentUser();
+    if (!student) {
+        return;
+    }
+    QJsonObject message = Protocol::makeMessage(Protocol::Reply::kStudentJoined);
+    message[Protocol::Field::kCourseId] = course.getId();
+    message[Protocol::Field::kUserId] = student->getId();
+    // Only the educator gets this, and the educator sees names even in an
+    // anonymous course (C7).
+    message[Protocol::Field::kName] = QString::fromStdString(student->getName());
+    const QString text = Protocol::encode(message);
+    for (QWebSocket* socket : getCourseConnections(nullptr, course.getId())) {
+        if (clients_.value(socket).model->getRole(course.getId()) == CourseRole::Educator) {
+            socket->sendTextMessage(text);
+        }
+    }
+}
+
+void PerplexServer::pushSessionPublished(QWebSocket* except, const Session& session) {
+    QJsonObject message = Protocol::makeMessage(Protocol::Reply::kSessionPublished);
+    message[Protocol::Field::kCourseId] = session.getCourseId();
+    message[Protocol::Field::kSessionId] = session.getId();
+    message[Protocol::Field::kName] = QString::fromStdString(session.getName());
+    const QString text = Protocol::encode(message);
+    for (QWebSocket* socket : getCourseConnections(except, session.getCourseId())) {
+        if (clients_.value(socket).model->getRole(session.getCourseId()) == CourseRole::Student) {
+            socket->sendTextMessage(text);
+        }
     }
 }
 
