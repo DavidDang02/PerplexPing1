@@ -1,5 +1,16 @@
 // VIEW: the login page (a page inside MainWindow). Collects a username and password and announces the
 // Log In and Create Account clicks as signals. Does not check credentials itself.
+//
+//                       PerplexPing
+//          Username      [                    ]
+//          Password      [                    ]
+//          School email  [                    ]
+//          (red error box, hidden until a login fails)
+//          [               Log In             ]
+//          [           Create Account         ]
+//
+// Built in code like the other pages; the form sits in a centred column
+// 640 to 760 px wide.
 
 #pragma once
 
@@ -8,16 +19,15 @@
 
 #include "error.h"
 
-namespace Ui {
-class LoginPage;
-}
+class QLabel;
+class QLineEdit;
+class QPushButton;
 
 class LoginPage : public QWidget {
   Q_OBJECT
 
  public:
   explicit LoginPage(QWidget* parent = nullptr);
-  ~LoginPage();
 
   QString username() const;
   QString password() const;
@@ -34,5 +44,11 @@ class LoginPage : public QWidget {
   void registerClicked();  // "Create Account"
 
  private:
-  Ui::LoginPage* ui;
+  QLabel* titleLabel;
+  QLineEdit* usernameEdit;
+  QLineEdit* passwordEdit;
+  QLineEdit* emailEdit;
+  QLabel* errorLabel;
+  QPushButton* loginButton;
+  QPushButton* registerButton;
 };

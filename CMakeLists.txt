@@ -5,7 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # Qt6::Sql gives you QSqlDatabase/QSqlQuery, backed by SQLite.
@@ -56,7 +55,6 @@ set(APP_SOURCES_NO_MAIN
     client/panoptooauthclient.cpp
     client/viewtext.cpp
     client/loginpage.cpp
-    client/loginpage.ui
     client/mainwindow.cpp
     client/basepage.cpp
     client/cardlist.cpp

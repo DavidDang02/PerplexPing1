@@ -89,7 +89,7 @@ tests/     doctest suites (see Tests)
 | `panoptooauthclient.h/.cpp` | `PanoptoOAuthClient`: the real one. OAuth 2 authorization code + PKCE in the browser, a tiny local server catches the redirect, no client secret, token in memory only. Reads `PANOPTO_HOST` and `PANOPTO_CLIENT_ID` from the environment or `.env`. |
 | `viewtext.h/.cpp` | `ViewText`: every sentence the pages show (times, durations, offsets, status, roles, authors, notices, one sentence per error). |
 | `mainwindow.h/.cpp` | `MainWindow`: switches pages on `pageChanged`, shows the "Can't reach the server" banner and the notice line. |
-| `loginpage.h/.cpp/.ui` | `LoginPage`: username, password, email; Log In and Create Account. |
+| `loginpage.h/.cpp` | `LoginPage`: username, password, email; Log In and Create Account. |
 | `main.cpp` | `app --host --port`: builds ServerClient, PanoptoOAuthClient (if set up), AppController and MainWindow. |
 
 ## Database
