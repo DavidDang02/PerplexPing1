@@ -37,6 +37,9 @@ TEST_CASE("Protocol: course round trip keeps toggles, role and ids") {
     course.setAnonymous(true);
     course.setQuestionsShared(false);
     course.setEducatorId(1);
+    course.setEducatorName("prof");
+    const auto created = std::chrono::system_clock::time_point(std::chrono::seconds(1764000000));
+    course.setCreatedTime(created);
     course.setRole(CourseRole::Educator);
     course.setLiveSessionId(9);
     course.setStudentIds({4, 5});
@@ -49,6 +52,8 @@ TEST_CASE("Protocol: course round trip keeps toggles, role and ids") {
     CHECK(back.isAnonymous());
     CHECK_FALSE(back.areQuestionsShared());
     CHECK(back.getEducatorId() == 1);
+    CHECK(back.getEducatorName() == "prof");
+    CHECK(back.getCreatedTime() == created);
     CHECK(back.getRole() == CourseRole::Educator);
     CHECK(back.getLiveSessionId() == 9);
     CHECK(back.getStudentIds() == std::vector<int>{4, 5});

@@ -100,6 +100,31 @@ QString formatCourseRow(const Course& course) {
   return row;
 }
 
+QString formatLiveSessionLabel(const SessionSummary& session) {
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      session.startTime.time_since_epoch());
+  return QString::fromStdString(session.name) + "  ·  started " +
+         QDateTime::fromMSecsSinceEpoch(ms.count()).toString("h:mm AP");
+}
+
+QString formatCourseTitle(const Course& course) {
+  QString title = QString::fromStdString(course.getName());
+  if (course.getRole() == CourseRole::Student && !course.getEducatorName().empty()) {
+    title += " - " + QString::fromStdString(course.getEducatorName());
+  }
+  return title;
+}
+
+QString formatCourseCreated(const Course& course) {
+  if (course.getCreatedTime() == Session::Clock::time_point{}) {
+    return "";  // not sent (an older server): say nothing rather than 1970
+  }
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      course.getCreatedTime().time_since_epoch());
+  return "Course created on " +
+         QDateTime::fromMSecsSinceEpoch(ms.count()).toString("MMMM d, yyyy");
+}
+
 QString formatCourseCardDetail(const Course& course) {
   if (course.getRole() == CourseRole::Educator && !course.getJoinCode().empty()) {
     return "Course code " + QString::fromStdString(course.getJoinCode());

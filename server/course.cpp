@@ -54,6 +54,22 @@ void Course::setEducatorId(int userId) {
     this->educatorId = userId;
 }
 
+Session::Clock::time_point Course::getCreatedTime() const {
+    return this->createdTime;
+}
+
+void Course::setCreatedTime(Session::Clock::time_point time) {
+    this->createdTime = time;
+}
+
+const std::string& Course::getEducatorName() const {
+    return this->educatorName;
+}
+
+void Course::setEducatorName(const std::string& name) {
+    this->educatorName = name;
+}
+
 bool Course::isEducator(int userId) const {
     // 0 means "nobody" (a deleted account), never the educator.
     return userId != 0 && this->educatorId == userId;

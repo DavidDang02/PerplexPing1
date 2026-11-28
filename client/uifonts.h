@@ -1,4 +1,5 @@
-// VIEW: the app's font sizes, in points, in one place. kBody is the
+// VIEW: the app's font sizes, in points, in one place (and, in UiStyle,
+// the one shared button style). kBody is the
 // smallest text anywhere in the app; everything else is bigger.
 // applyTo() makes kBody the default for every widget, dialog and tooltip,
 // so only text that should be larger sets a size.
@@ -52,3 +53,15 @@ inline void styleSectionTitles(QWidget* root) {
 }
 
 }  // namespace UiFont
+
+namespace UiStyle {
+
+// A solid red button for actions that log out or destroy something (Log Out,
+// Delete Course…). Darker red on hover and while pressed.
+inline const char* const kDangerButton =
+    "QPushButton { background-color: #d32f2f; color: white; font-weight: 600;"
+    " border: none; border-radius: 6px; padding: 8px 16px; }"
+    "QPushButton:hover { background-color: #b71c1c; }"
+    "QPushButton:pressed { background-color: #8e1414; }";
+
+}  // namespace UiStyle

@@ -54,6 +54,8 @@ QJsonObject toJson(const Course& course) {
     obj[Field::kAnonymous] = course.isAnonymous();
     obj[Field::kQuestionsShared] = course.areQuestionsShared();
     obj[Field::kEducatorId] = course.getEducatorId();
+    obj[Field::kEducatorName] = QString::fromStdString(course.getEducatorName());
+    obj[Field::kCreatedTime] = toMs(course.getCreatedTime());
     obj[Field::kRole] = toText(course.getRole());
     if (course.getLiveSessionId() != 0) {
         obj[Field::kLiveSessionId] = course.getLiveSessionId();
@@ -396,6 +398,8 @@ Course courseFromJson(const QJsonObject& json) {
     course.setAnonymous(json[Field::kAnonymous].toBool(false));
     course.setQuestionsShared(json[Field::kQuestionsShared].toBool(false));
     course.setEducatorId(json[Field::kEducatorId].toInt(0));
+    course.setEducatorName(json[Field::kEducatorName].toString().toStdString());
+    course.setCreatedTime(timeField(json, Field::kCreatedTime));
     course.setRole(roleFromText(json[Field::kRole].toString()));
     course.setLiveSessionId(json[Field::kLiveSessionId].toInt(0));
     course.setPanoptoFolderId(json[Field::kPanoptoFolderId].toString().toStdString());

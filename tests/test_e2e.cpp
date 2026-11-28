@@ -8,12 +8,14 @@
 // from the same getters.
 
 #include "doctest.h"
+#include "viewtext.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QHostAddress>
 #include <QUrlQuery>
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <set>
@@ -695,4 +697,25 @@ TEST_CASE("E2E: in an anonymous course the bell still names who joined (the educ
         names.insert(n.studentName);
     }
     CHECK(names == std::multiset<std::string>{"ana", "ana", "bob", "bob"});
+}
+
+TEST_CASE("E2E: students see whose course it is (course name - educator)") {
+    Lecture l;
+    // ana's open course (she joined by session code) and her My Courses list.
+    REQUIRE((*l.ana)->getOpenCourse());
+    CHECK((*l.ana)->getOpenCourse()->course.getEducatorName() == "prof");
+    CHECK(ViewText::formatCourseTitle((*l.ana)->getOpenCourse()->course) == "CSCI 187 - prof");
+    (*l.ana)->goHome();
+    REQUIRE(waitFor([&] { return (*l.ana)->getCourses().size() == 1; }));
+    CHECK((*l.ana)->getCourses().front().getEducatorName() == "prof");
+    // When it was created: just now, as far as both of them can tell.
+    const auto age = std::chrono::system_clock::now() - (*l.ana)->getOpenCourse()->course.getCreatedTime();
+    CHECK(age >= std::chrono::seconds(-2));
+    CHECK(age < std::chrono::minutes(5));
+    CHECK((*l.prof)->getOpenCourse()->course.getCreatedTime() ==
+          (*l.ana)->getOpenCourse()->course.getCreatedTime());
+    CHECK(ViewText::formatCourseCreated((*l.ana)->getOpenCourse()->course)
+              .startsWith("Course created on "));
+    // The educator's own page shows just the course name.
+    CHECK(ViewText::formatCourseTitle((*l.prof)->getOpenCourse()->course) == "CSCI 187");
 }

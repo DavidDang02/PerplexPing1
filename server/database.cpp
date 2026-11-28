@@ -326,8 +326,15 @@ VALUES (:name, :code, :anon, :shared, :educator, :created);)sql");
     course.setAnonymous(anonymous);
     course.setQuestionsShared(questionsShared);
     course.setEducatorId(educatorUserId);
+    QSqlQuery educator(this->db);
+    educator.prepare("SELECT user_name FROM Users WHERE user_id = :uid;");
+    educator.bindValue(":uid", educatorUserId);
+    if (educator.exec() && educator.next()) {
+        course.setEducatorName(educator.value(0).toString().toStdString());
+    }
     course.setRole(CourseRole::Educator);
-    // created_time is stored in the DB but not exposed on the Course model object.
+    // Stored to the second, so round it the same way a reload would.
+    course.setCreatedTime(convertStringToTime(convertTimeToString(createdTime)));
     return Result<Course>(std::move(course));
 }
 
@@ -335,7 +342,8 @@ Result<Course> Database::getCourse(int courseId, int userId) {
     QSqlQuery query(this->db);
     query.prepare(R"sql(
 SELECT course_id, course_name, course_join_code, is_anonymous,
-       questions_shared, educator_id, created_time, panopto_folder_id
+       questions_shared, educator_id, created_time, panopto_folder_id,
+       (SELECT user_name FROM Users WHERE user_id = Courses.educator_id)
 FROM Courses WHERE course_id = :id;)sql");
     query.bindValue(":id", courseId);
     if (!query.exec() || !query.next()) {
@@ -350,6 +358,8 @@ FROM Courses WHERE course_id = :id;)sql");
     course.setQuestionsShared(query.value(4).toInt());
     course.setEducatorId(query.value(5).toInt());
         course.setPanoptoFolderId(query.value(7).toString().toStdString());
+        course.setEducatorName(query.value(8).toString().toStdString());  // NULL (deleted) -> ""
+        course.setCreatedTime(convertStringToTime(query.value(6).toString().toStdString()));
 
     if (course.getEducatorId() != 0 && course.getEducatorId() == userId) {
         course.setRole(CourseRole::Educator);
@@ -404,7 +414,8 @@ Result<Course> Database::findCourseByJoinCode(const std::string& joinCode, int u
     QSqlQuery query(this->db);
     query.prepare(R"sql(
 SELECT course_id, course_name, course_join_code, is_anonymous,
-       questions_shared, educator_id, created_time, panopto_folder_id
+       questions_shared, educator_id, created_time, panopto_folder_id,
+       (SELECT user_name FROM Users WHERE user_id = Courses.educator_id)
 FROM Courses WHERE course_join_code = :code;)sql");
     query.bindValue(":code", QString::fromStdString(joinCode));
     if (!query.exec() || !query.next()) {
@@ -419,6 +430,8 @@ FROM Courses WHERE course_join_code = :code;)sql");
     course.setQuestionsShared(query.value(4).toInt());
     course.setEducatorId(query.value(5).toInt());
         course.setPanoptoFolderId(query.value(7).toString().toStdString());
+        course.setEducatorName(query.value(8).toString().toStdString());  // NULL (deleted) -> ""
+        course.setCreatedTime(convertStringToTime(query.value(6).toString().toStdString()));
 
     if (course.getEducatorId() != 0 && course.getEducatorId() == userId) {
         course.setRole(CourseRole::Educator);
@@ -455,13 +468,15 @@ Result<std::vector<Course>> Database::listCoursesForUser(int userId) {
     QSqlQuery query(this->db);
     query.prepare(R"sql(
 SELECT c.course_id, c.course_name, c.course_join_code, c.is_anonymous,
-       c.questions_shared, c.educator_id, c.created_time, c.panopto_folder_id
+       c.questions_shared, c.educator_id, c.created_time, c.panopto_folder_id,
+       (SELECT user_name FROM Users WHERE user_id = c.educator_id)
 FROM Courses c
 JOIN CourseMembers cm ON c.course_id = cm.course_id
 WHERE cm.user_id = :uid
 UNION
 SELECT c.course_id, c.course_name, c.course_join_code, c.is_anonymous,
-       c.questions_shared, c.educator_id, c.created_time, c.panopto_folder_id
+       c.questions_shared, c.educator_id, c.created_time, c.panopto_folder_id,
+       (SELECT user_name FROM Users WHERE user_id = c.educator_id)
 FROM Courses c
 WHERE c.educator_id = :uid
 ORDER BY c.course_name COLLATE NOCASE;)sql");
@@ -479,6 +494,8 @@ ORDER BY c.course_name COLLATE NOCASE;)sql");
         course.setQuestionsShared(query.value(4).toInt());
         course.setEducatorId(query.value(5).toInt());
         course.setPanoptoFolderId(query.value(7).toString().toStdString());
+        course.setEducatorName(query.value(8).toString().toStdString());  // NULL (deleted) -> ""
+        course.setCreatedTime(convertStringToTime(query.value(6).toString().toStdString()));
 
         if (course.getEducatorId() != 0 && course.getEducatorId() == userId) {
             course.setRole(CourseRole::Educator);

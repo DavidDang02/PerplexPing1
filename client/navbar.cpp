@@ -246,11 +246,7 @@ NavBar::NavBar(AppController* controller, QWidget* parent)
     addLine();
     logoutButton = new QPushButton("Log Out", userPopup);
     logoutButton->setCursor(Qt::PointingHandCursor);
-    logoutButton->setStyleSheet(
-        "QPushButton { background-color: #d32f2f; color: white; font-weight: 600;"
-        " border: none; border-radius: 6px; padding: 8px 16px; }"
-        "QPushButton:hover { background-color: #b71c1c; }"
-        "QPushButton:pressed { background-color: #8e1414; }");
+    logoutButton->setStyleSheet(UiStyle::kDangerButton);
     userLayout->addWidget(logoutButton);
 
     // ---- Wiring ----

@@ -52,6 +52,14 @@ public:
     // The course's one educator (its creator). 0 if that account was deleted.
     int getEducatorId() const;
     void setEducatorId(int userId);
+    // When the educator created the course (Courses.created_time).
+    Session::Clock::time_point getCreatedTime() const;
+    void setCreatedTime(Session::Clock::time_point time);
+
+    // The educator's username, shown to students on the course page.
+    // Empty if that account was deleted.
+    const std::string& getEducatorName() const;
+    void setEducatorName(const std::string& name);
     // True if userId is this course's educator (userId != 0).
     bool isEducator(int userId) const;
 
@@ -85,6 +93,8 @@ private:
     bool anonymous = false;
     bool questionsShared = true;
     int educatorId = 0;
+    std::string educatorName;
+    Session::Clock::time_point createdTime{};
     std::vector<int> studentIds;
     std::vector<int> sessionIds;
     CourseRole role = CourseRole::None;

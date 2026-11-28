@@ -50,6 +50,18 @@ QString formatLiveStatus(const Session& session);
 // or "CSCI 187  ·  Student".
 QString formatCourseRow(const Course& course);
 
+// Next to the course page's Join button: "Lecture 3 · started 2:15 PM".
+QString formatLiveSessionLabel(const SessionSummary& session);
+
+// The course page's title. A student sees whose course it is:
+// "CSCI 187 - prof" (just "CSCI 187" if the educator's account was deleted).
+// The educator sees "CSCI 187".
+QString formatCourseTitle(const Course& course);
+
+// Under the course page's title: "Course created on November 15, 2026"
+// (the computer's time zone). "" if the date wasn't sent.
+QString formatCourseCreated(const Course& course);
+
 // A course's card on My Courses: the course name is its title, its role
 // ("Educator" / "Student") its badge, and this its detail line:
 // "Course code K7M2QX" for the educator, "" for a student.

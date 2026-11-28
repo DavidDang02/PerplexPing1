@@ -1,6 +1,12 @@
 #include "coursepage.h"
 
+#include <algorithm>
+
 #include <QCheckBox>
+#include <QIcon>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QGroupBox>
@@ -20,17 +26,44 @@
 namespace Request = Protocol::Request;
 
 namespace {
-constexpr int kLiveRole = Qt::UserRole + 1;  // session rows: true while live
+
+// The "join" icon: an arrow going into an open doorway (a bracket).
+QIcon makeJoinIcon(const QColor& color, int size, qreal dpr) {
+    QPixmap pixmap(QSize(size, size) * dpr);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal s = size;
+    p.setPen(QPen(color, s * 0.09, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    QPainterPath door;  // the doorway, open on the left
+    door.moveTo(s * 0.55, s * 0.12);
+    door.lineTo(s * 0.86, s * 0.12);
+    door.lineTo(s * 0.86, s * 0.88);
+    door.lineTo(s * 0.55, s * 0.88);
+    p.drawPath(door);
+    p.drawLine(QPointF(s * 0.10, s * 0.50), QPointF(s * 0.64, s * 0.50));  // the arrow
+    QPainterPath head;
+    head.moveTo(s * 0.44, s * 0.30);
+    head.lineTo(s * 0.64, s * 0.50);
+    head.lineTo(s * 0.44, s * 0.70);
+    p.drawPath(head);
+    return QIcon(pixmap);  // Qt greys it out itself when the button is disabled
 }
+
+}  // namespace
 
 CoursePage::CoursePage(AppController* controller, QWidget* parent)
     : BasePage(controller, parent) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 12, 16, 12);
 
-    // ---- Top: course name, course code (back and the role are in the NavBar) ----
+    // ---- Top: course name, when it was created, course code (back and the role are in the NavBar) ----
     titleLabel = makeHeading("");
     layout->addWidget(titleLabel);
+    createdLabel = new QLabel(this);
+    createdLabel->setStyleSheet("color: palette(placeholder-text);");
+    layout->addWidget(createdLabel);
     // The course code: one click copies it to the clipboard.
     codeRow = new QWidget(this);
     auto* codeLayout = new QHBoxLayout(codeRow);
@@ -70,8 +103,27 @@ CoursePage::CoursePage(AppController* controller, QWidget* parent)
     startLayout->addWidget(startError);
     layout->addWidget(startBox);
 
-    // ---- Sessions ----
-    layout->addWidget(makeHeading("Sessions", UiFont::kSubheading));
+    // ---- Join Live Session ----
+    layout->addWidget(makeHeading("Join Live Session", UiFont::kSubheading));
+    auto* joinRow = new QHBoxLayout;
+    joinButton = new QPushButton(this);
+    joinButton->setMinimumHeight(2 * joinButton->sizeHint().height());
+    joinButton->setMinimumWidth(260);
+    const int iconSize = QFontMetrics(joinButton->font()).height() + 8;
+    joinButton->setIconSize(QSize(iconSize, iconSize));  // drawn in refreshLiveSession
+    joinButton->setCursor(Qt::PointingHandCursor);
+    QFont joinFont = joinButton->font();
+    joinFont.setBold(true);
+    joinButton->setFont(joinFont);
+    liveLabel = new QLabel(this);
+    joinRow->addWidget(joinButton);
+    joinRow->addSpacing(12);
+    joinRow->addWidget(liveLabel);
+    joinRow->addStretch();
+    layout->addLayout(joinRow);
+
+    // ---- Past Sessions ----
+    layout->addWidget(makeHeading("Past Sessions", UiFont::kSubheading));
     searchEdit = new QLineEdit(this);
     searchEdit->setPlaceholderText("Search sessions by name…");
     searchEdit->setClearButtonEnabled(true);
@@ -106,7 +158,8 @@ CoursePage::CoursePage(AppController* controller, QWidget* parent)
     auto* settingsButtons = new QHBoxLayout;
     auto* saveButton = new QPushButton("Save Settings", settingsBox);
     auto* deleteCourseButton = new QPushButton("Delete Course…", settingsBox);
-    deleteCourseButton->setStyleSheet("color:#b00020;");
+    deleteCourseButton->setStyleSheet(UiStyle::kDangerButton);  // like Log Out
+    deleteCourseButton->setCursor(Qt::PointingHandCursor);
     settingsButtons->addWidget(saveButton);
     settingsButtons->addStretch();
     settingsButtons->addWidget(deleteCourseButton);
@@ -127,6 +180,7 @@ CoursePage::CoursePage(AppController* controller, QWidget* parent)
     connect(searchEdit, &QLineEdit::textChanged, controller, &AppController::setSessionSearch);
     // Double-click (or Enter on) a card to open it.
     connect(sessionList, &QListWidget::itemActivated, this, &CoursePage::openSelected);
+    connect(joinButton, &QPushButton::clicked, this, &CoursePage::joinLiveSession);
     connect(sessionList, &QListWidget::currentRowChanged, this, [this](int row) {
         renameButton->setEnabled(row >= 0);
         deleteButton->setEnabled(row >= 0);
@@ -162,7 +216,9 @@ void CoursePage::refresh() {
     const Course& course = detail->course;
     const bool educator = controller->getRole() == CourseRole::Educator;
 
-    titleLabel->setText(QString::fromStdString(course.getName()));
+    titleLabel->setText(ViewText::formatCourseTitle(course));
+    createdLabel->setText(ViewText::formatCourseCreated(course));
+    createdLabel->setVisible(!createdLabel->text().isEmpty());
     codeRow->setVisible(educator && !course.getJoinCode().empty());
     if (!copiedTimer->isActive()) {
         showCourseCode();
@@ -190,32 +246,34 @@ void CoursePage::refresh() {
         fillSettings(course);
     }
 
-    // ---- Session list, keeping the highlighted row ----
+    refreshLiveSession(*detail);
+
+    // ---- Past sessions (the live one is under Join), keeping the highlighted card ----
     const int selectedId = selectedSessionId();
     {
         const QSignalBlocker block(sessionList);
         sessionList->clear();
         for (const SessionSummary& session : controller->getVisibleSessions()) {
+            if (session.isLive()) {
+                continue;
+            }
             auto* item = new QListWidgetItem(ViewText::formatSessionRow(session), sessionList);
             item->setData(Qt::UserRole, session.id);
-            item->setData(kLiveRole, session.isLive());
             item->setData(CardList::kTitleRole, QString::fromStdString(session.name));
             item->setData(CardList::kDetailRole, ViewText::formatSessionCardDetail(session));
             item->setData(CardList::kBadgeRole, ViewText::formatStatus(session.status));
-            item->setData(CardList::kAccentRole, session.isLive());
-            item->setToolTip(session.isLive() && !educator
-                                 ? "Live now. Join it with its session code on My Courses."
-                                 : "Double-click to open");
+            item->setToolTip("Double-click to open");
             if (session.id == selectedId) {
                 sessionList->setCurrentItem(item);
             }
         }
     }
-    const bool anySessions = !detail->sessions.empty();
+    const bool anyPast = std::any_of(detail->sessions.begin(), detail->sessions.end(),
+                                     [](const SessionSummary& s) { return !s.isLive(); });
     emptyLabel->setVisible(sessionList->count() == 0);
-    emptyLabel->setText(!anySessions ? (educator ? "No sessions yet. Start one above when class begins."
-                                                 : "No sessions yet.")
-                                     : "No session matches your search.");
+    emptyLabel->setText(!anyPast ? (educator ? "No past sessions yet. Start one above when class begins."
+                                             : "No past sessions yet.")
+                                 : "No session matches your search.");
 
     const bool hasSelection = sessionList->currentItem() != nullptr;
     renameButton->setEnabled(hasSelection);
@@ -258,18 +316,28 @@ void CoursePage::copyCourseCode() {
     copiedTimer->start();  // back to the code shortly
 }
 
-bool CoursePage::canOpenSelected() const {
-    const QListWidgetItem* item = sessionList->currentItem();
-    if (!item) {
-        return false;
+void CoursePage::refreshLiveSession(const CourseDetail& detail) {
+    // The whole course, not just what the search box lets through.
+    const auto live = std::find_if(detail.sessions.begin(), detail.sessions.end(),
+                                   [](const SessionSummary& s) { return s.isLive(); });
+    liveSessionId = live != detail.sessions.end() ? live->id : 0;
+    // Redrawn each time so it follows light / dark mode.
+    joinButton->setIcon(makeJoinIcon(palette().color(QPalette::ButtonText),
+                                     joinButton->iconSize().width(), devicePixelRatioF()));
+    joinButton->setEnabled(liveSessionId != 0);
+    joinButton->setText(liveSessionId != 0 ? "Join" : "No live session");
+    liveLabel->setText(liveSessionId != 0 ? ViewText::formatLiveSessionLabel(*live) : QString());
+    liveLabel->setVisible(liveSessionId != 0);
+}
+
+void CoursePage::joinLiveSession() {
+    if (liveSessionId != 0) {
+        clearError(sessionError);
+        controller->openSession(liveSessionId);
     }
-    return controller->getRole() == CourseRole::Educator || !item->data(kLiveRole).toBool();
 }
 
 void CoursePage::openSelected() {
-    if (!canOpenSelected()) {
-        return;
-    }
     if (const int id = selectedSessionId()) {
         clearError(sessionError);
         controller->openSession(id);
